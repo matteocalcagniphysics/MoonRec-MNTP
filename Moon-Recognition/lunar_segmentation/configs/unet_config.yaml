@@ -3,7 +3,7 @@
 # Model
 # ---------------------------------------------------------
 in_channels: 3
-num_classes: 4          # match CLASS_NAMES in your notebook
+num_classes: 7          # reale: 7 classi one-hot nel dataset (era 4)
 base_width: 32
 depth: 4                # +1 level vs original (was 3)
 bottleneck_dropout: 0.3 # regularisation at the deepest layer
@@ -47,7 +47,7 @@ augmentations:
 # ---------------------------------------------------------
 # Loss
 # ---------------------------------------------------------
-loss: bce_dice          # keep your BCEDiceLoss
+loss: bce_dice          # BCEDiceLoss — expects one-hot masks (B, 7, H, W)
 bce_weight: 0.5
 dice_weight: 0.5
 # pos_weight > 1.0 upweights rare classes (craters are sparse)

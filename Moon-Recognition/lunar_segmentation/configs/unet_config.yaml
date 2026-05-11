@@ -1,8 +1,59 @@
-# Training configuration for lunar segmentation
-batch_size: 8  # Increased from 4 for better convergence
-lr: 0.001
-epochs: 20     # Increased from 5 for proper convergence
-tile_size: 256  # Use 256x256 tiles for training (more context)
-stride: 128     # 50% overlap for 256x256 tiles
-augment: true  # Enable data augmentation
-seed: 42       # Random seed for reproducibility
+# Training configuration for lunar crater segmentation
+# ---------------------------------------------------------
+# Model
+# ---------------------------------------------------------
+in_channels: 3
+num_classes: 4          # match CLASS_NAMES in your notebook
+base_width: 32
+depth: 4                # +1 level vs original (was 3)
+bottleneck_dropout: 0.3 # regularisation at the deepest layer
+decoder_dropout: 0.1    # light regularisation in the decoder
+
+# ---------------------------------------------------------
+# Training
+# ---------------------------------------------------------
+batch_size: 8
+epochs: 60              # was 20 — too few for a 4-level UNet to converge
+seed: 42
+
+# Optimizer
+optimizer: adamw        # was adam — AdamW adds weight decay for free
+lr: 0.0003              # was 0.001 — lower LR pairs better with AdamW
+weight_decay: 0.0001
+
+# LR scheduler: cosine annealing restarts
+scheduler: cosine
+T_max: 60               # match epochs
+eta_min: 0.000005       # floor LR
+
+# Early stopping
+early_stopping_patience: 12   # stop if val loss doesn't improve for 12 epochs
+
+# ---------------------------------------------------------
+# Data
+# ---------------------------------------------------------
+tile_size: 256
+stride: 128             # 50% overlap — good, keep it
+augment: true
+
+# Augmentation ops (applied randomly during training)
+augmentations:
+  horizontal_flip: true
+  vertical_flip: true
+  rotate_90: true
+  brightness_jitter: 0.2
+  contrast_jitter: 0.2
+
+# ---------------------------------------------------------
+# Loss
+# ---------------------------------------------------------
+loss: bce_dice          # keep your BCEDiceLoss
+bce_weight: 0.5
+dice_weight: 0.5
+# pos_weight > 1.0 upweights rare classes (craters are sparse)
+pos_weight: 2.0
+
+# ---------------------------------------------------------
+# Inference
+# ---------------------------------------------------------
+adjusted_threshold: 0.35   # was 0.1 — reduces false positives

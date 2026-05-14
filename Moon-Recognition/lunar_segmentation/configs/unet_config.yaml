@@ -50,8 +50,19 @@ augmentations:
 loss: bce_dice          # BCEDiceLoss — expects one-hot masks (B, 7, H, W)
 bce_weight: 0.5
 dice_weight: 0.5
-# pos_weight > 1.0 upweights rare classes (craters are sparse)
-pos_weight: 2.0
+
+# Per-class weights — calcolati da distribuzione reale (15905 tile analizzate)
+# formula: 100.0 / percentuale_classe
+# impact_crater: 100.0% -> peso 1.0   (presente ovunque, nessun upweight)
+# candidate_rille: 0.1% -> peso 795  (rarissima, fortemente upweighted)
+class_weights:
+  impact_crater:         1.0   # 15905/15905 = 100.0%
+  pit_skylight:         64.7   # 15905/246   =   1.5%
+  wrinkle_ridge:         5.3   # 15905/2987  =  18.8%
+  lobate_scarp:         58.7   # 15905/271   =   1.7%
+  irregular_mare_patch: 154.4  # 15905/103   =   0.6%
+  apollo_site:           90.9  # 15905/175   =   1.1%
+  candidate_rille:      795.3  # 15905/20    =   0.1%
 
 # ---------------------------------------------------------
 # Inference

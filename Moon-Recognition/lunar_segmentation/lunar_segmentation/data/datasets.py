@@ -74,7 +74,7 @@ class MoonTileTestDataset_RCNN(Dataset):
         row = self.index_df.iloc[idx]
         data = np.load(row['tile_path'])
 
-        # Load the image and normalize to [0, 1]
+        # Load the image and normalize to [0, 1] if needed
         image = data['image'].astype(np.float32)
         mask = data['mask'].astype(np.uint8)  # Better to keep mask as uint8 for inference
         if image.max() > 1.0:
@@ -96,9 +96,6 @@ class MoonTileTestDataset_RCNN(Dataset):
             # Skip if the channel is empty
             if class_mask.max() == 0:
                 continue
-
-            # Find all the pixels that aren't zero
-            pixel = np.where(class_mask > 0)
 
             # We use 'label' from scipy.ndimage to find groups of pixels "physically" near
             # num_instances tells us how many groups it found  
@@ -126,3 +123,36 @@ class MoonTileTestDataset_RCNN(Dataset):
                     valid_masks.append(m_inst)
                     # Save the class, add 1 because in R-CNNs the 0 is for the background
                     class_labels.append(class_idx + 1)
+
+
+        # Prepare the tensors for Mask R-CNN
+        # "Unlucky" case: no valid boxes found, we need to return something for the model to work
+        if len(boxes_coord) == 0:
+            boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+            masks_tensor = torch.zeros((0, mask.shape[1], mask.shape[2]), dtype=torch.uint8)
+            labels_tensor = torch.zeros((0,), dtype=torch.int64)
+            area_tensor = torch.zeros((0,), dtype=torch.float32)
+        else:
+            boxes_tensor = torch.tensor(boxes_coord, dtype=torch.float32)
+            masks_tensor = torch.tensor(valid_masks, dtype=torch.uint8)
+            labels_tensor = torch.tensor(class_labels, dtype=torch.int64)
+            area_tensor = (boxes_tensor[:, 3] - boxes_tensor[:, 0]) * (boxes_tensor[:, 2] - boxes_tensor[:, 1])
+        
+        # Instances are clearly separated: iscrowd_tensor will be a tensor full of zeros
+        iscrowd_tensor = torch.zeros((len(boxes_coord),), dtype=torch.int64)
+        image_id_tensor = torch.tensor([idx])
+
+        # Create the target dictionary for the R-CNN
+        target = {
+            "boxes": boxes_tensor,
+            "labels": labels_tensor,
+            "masks": masks_tensor,
+            "image_id": image_id_tensor,
+            "area": area_tensor,
+            "iscrowd": iscrowd_tensor
+        }
+
+        # Cast image to tensor
+        image_tensor = torch.as_tensor(image, dtype=torch.float32)
+
+        return image_tensor, target

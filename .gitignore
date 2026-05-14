@@ -9,5 +9,5 @@ __pycache__/
 node_modules/
 memory/
 CLAUDE.md
-data/
+/data/
 */notebooks/catboost_info

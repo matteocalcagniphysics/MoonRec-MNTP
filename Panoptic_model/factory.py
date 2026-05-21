@@ -59,7 +59,8 @@ def make_fpn_resnet(name: str = 'resnet18',
     assert num_classes > 0
     assert out_size[0] > 0 and out_size[1] > 0
 
-    resnet = tv.models.resnet.__dict__[name](pretrained=pretrained)
+    weights_arg = "DEFAULT" if pretrained else None
+    resnet = tv.models.resnet.__dict__[name](weights=weights_arg)
     if in_channels == 3:
         backbone = ResNetFeatureMapsExtractor(resnet)
 

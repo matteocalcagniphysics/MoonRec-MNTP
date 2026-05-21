@@ -136,7 +136,7 @@ class MoonTileTestDataset_RCNN(Dataset):
             boxes_tensor = torch.tensor(boxes_coord, dtype=torch.float32)
             masks_tensor = torch.tensor(valid_masks, dtype=torch.uint8)
             labels_tensor = torch.tensor(class_labels, dtype=torch.int64)
-            area_tensor = (boxes_tensor[:, 3] - boxes_tensor[:, 0]) * (boxes_tensor[:, 2] - boxes_tensor[:, 1])
+            area_tensor = (boxes_tensor[:, 3] - boxes_tensor[:, 1]) * (boxes_tensor[:, 2] - boxes_tensor[:, 0])        
         
         # Instances are clearly separated: iscrowd_tensor will be a tensor full of zeros
         iscrowd_tensor = torch.zeros((len(boxes_coord),), dtype=torch.int64)
@@ -156,3 +156,14 @@ class MoonTileTestDataset_RCNN(Dataset):
         image_tensor = torch.as_tensor(image, dtype=torch.float32)
 
         return image_tensor, target
+    
+def collate_fn(batch):
+    """
+    Custom collate function to handle batches of images and targets for Mask R-CNN.
+    This function will be passed to the DataLoader to ensure that batches are formed correctly.
+    Args:
+        batch: List of tuples (image_tensor, target_dict) returned by the dataset's __getitem__ method.
+    Returns:
+        A tuple of two lists: (list of image tensors, list of target dictionaries).
+    """
+    return tuple(zip(*batch))

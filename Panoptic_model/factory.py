@@ -10,8 +10,6 @@ from utils import _get_shapes
 from backbone import ResNetFeatureMapsExtractor
 
 
-
-
 def make_fpn_resnet(name: str = 'resnet18',
                     fpn_type: str = 'fpn',
                     out_size: Tuple[int, int] = (224, 224),

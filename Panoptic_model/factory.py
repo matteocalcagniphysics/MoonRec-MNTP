@@ -40,9 +40,7 @@ def make_fpn_resnet(name: str = 'resnet18',
         pretrained (bool, optional): Whether to use pretrained backbone.
             Defaults to True.
         in_channels (int, optional): Channel width of the input. If less than
-            3, conv1 is replaced with a smaller one. If greater than 3, a
-            FuseNet-style architecture is used to incorporate the new channels.
-            In both cases, pretrained weights are retained. Defaults to 3.
+            3, conv1 is replaced with a smaller one.  Defaults to 3.
 
     Raises:
         NotImplementedError: On unknown fpn_style.
@@ -51,18 +49,20 @@ def make_fpn_resnet(name: str = 'resnet18',
         nn.Module: the FPN model
     """
 
-    # Keep these checks
-
+    # Checks if the needed inputs are present or not
     assert in_channels > 0
     assert num_classes > 0
     assert out_size[0] > 0 and out_size[1] > 0
 
+    # Checks if it was requested a pretrained network or not
     weights_arg = "DEFAULT" if pretrained else None
     resnet = tv.models.resnet.__dict__[name](weights=weights_arg)
+    
+    # I will always have 3 channels in input: image shape is (3, 256, 256)
     if in_channels == 3:
         backbone = ResNetFeatureMapsExtractor(resnet)
 
-    
+    # Extracts feature maps shape
     feat_shapes = _get_shapes(backbone, channels=in_channels, size=out_size)
     
     if fpn_type == 'panoptic':

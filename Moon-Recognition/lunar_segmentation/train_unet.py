@@ -25,16 +25,19 @@ def main():
     print(f"--- Training Configuration Loaded from {config_path} ---")
     
     # 2. Prepare Data Index
-    # We look for all .npz files in the data directory provided by the user
-    # Or fallback to the local processed directory
-    data_root = Path(r"C:\Users\Nicola Lavarda\Jupyter\LCP_moon\data\MR\data\processed\tiles\marius_hills")
+    # Resolve path relative to this script's directory, or fall back to specified paths
+    script_dir = Path(__file__).resolve().parent
+    data_root = script_dir.parent.parent / "data" / "MR" / "data" / "processed" / "tiles" / "marius_hills"
+    
+    if not data_root.exists():
+        data_root = Path(r"C:\Users\Nicola Lavarda\Jupyter\LCP_moon\data\MR\data\processed\tiles\marius_hills")
     if not data_root.exists():
         data_root = Path("data/processed/tiles/marius_hills")
     
-    print(f"Scanning tiles in: {data_root}")
+    print(f"Scanning tiles in: {data_root.resolve()}")
     tile_paths = list(data_root.glob("*.npz"))
     if not tile_paths:
-        print("Error: No .npz tiles found!")
+        print(f"Error: No .npz tiles found in: {data_root.resolve()}")
         return
 
     df = pd.DataFrame({'tile_path': [str(p) for p in tile_paths]})

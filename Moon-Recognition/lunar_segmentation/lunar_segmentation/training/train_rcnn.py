@@ -3,6 +3,7 @@ from torchmetrics.detection import MeanAveragePrecision
 import numpy as np
 import pandas as pd
 import logging
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,10 @@ class MaskRCNN_Trainer:
         
         self.model.train()
         losses = []
+
+        # Add a progress bar for training batches
+        pbar = tqdm(loader, desc="Training Batch")
+
         for images, targets in loader:
             self.optimizer.zero_grad()
             # Moving images and targets to the GPU
@@ -49,8 +54,11 @@ class MaskRCNN_Trainer:
 
             self.optimizer.step()
 
-            # Save the loss value for logging
-            losses.append(total_loss.item())
+            # Save the loss value for logging and update the progress bar
+            current_loss = total_loss.item()
+            losses.append(current_loss)
+            pbar.set_postfix(loss=f"{current_loss:.4f}")
+
         return float(np.mean(losses)) if losses else np.nan
 
 

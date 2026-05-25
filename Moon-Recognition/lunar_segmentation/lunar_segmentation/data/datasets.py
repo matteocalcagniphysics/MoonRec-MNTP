@@ -134,7 +134,7 @@ class MoonTileTestDataset_RCNN(Dataset):
             area_tensor = torch.zeros((0,), dtype=torch.float32)
         else:
             boxes_tensor = torch.tensor(boxes_coord, dtype=torch.float32)
-            masks_tensor = torch.tensor(valid_masks, dtype=torch.uint8)
+            masks_tensor = torch.tensor(np.array(valid_masks), dtype=torch.uint8)
             labels_tensor = torch.tensor(class_labels, dtype=torch.int64)
             area_tensor = (boxes_tensor[:, 3] - boxes_tensor[:, 1]) * (boxes_tensor[:, 2] - boxes_tensor[:, 0])        
         

@@ -1,7 +1,6 @@
 """Evaluation subpackage for lunar segmentation models.
 
-Provides model-agnostic metrics, statistical comparison utilities,
-and synthetic data generators for testing evaluation pipelines
+Provides model-agnostic metrics and statistical comparison utilities
 independently of trained models.
 """
 
@@ -13,6 +12,8 @@ from .metrics import (
     f1_score,
     confusion_components,
     compute_all_metrics,
+    confusion_components_vectorized,
+    compute_all_metrics_vectorized,
 )
 from .protocols import SegmentationModel, SemanticModelAdapter
 from .comparison import EvaluationResult, evaluate_model
@@ -26,6 +27,8 @@ __all__ = [
     "f1_score",
     "confusion_components",
     "compute_all_metrics",
+    "confusion_components_vectorized",
+    "compute_all_metrics_vectorized",
     # Protocols
     "SegmentationModel",
     "SemanticModelAdapter",

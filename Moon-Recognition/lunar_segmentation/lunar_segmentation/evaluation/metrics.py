@@ -330,6 +330,98 @@ def threshold_sweep(
 
 
 # ======================================================================== #
+#  Vectorized metrics helpers                                               #
+# ======================================================================== #
+
+@torch.no_grad()
+def confusion_components_vectorized(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    from_logits: bool = True,
+    threshold: float = 0.5,
+) -> dict[str, torch.Tensor]:
+    """Compute per-sample, per-class TP, FP, FN, TN pixel counts.
+
+    Parameters
+    ----------
+    pred : torch.Tensor
+        Predictions ``(B, C, H, W)``.
+    target : torch.Tensor
+        Ground-truth binary masks ``(B, C, H, W)``.
+    from_logits : bool
+        Apply sigmoid to *pred* before thresholding.
+    threshold : float
+        Decision boundary for binarisation.
+
+    Returns
+    -------
+    dict[str, torch.Tensor]
+        Dictionary with keys ``"tp"``, ``"fp"``, ``"fn"``, ``"tn"``,
+        each of shape ``(B, C)`` summed over spatial dimensions only.
+    """
+    p = _binarize(pred, from_logits=from_logits, threshold=threshold)
+    t = target.float()
+
+    tp = (p * t).sum(dim=(2, 3))
+    fp = (p * (1.0 - t)).sum(dim=(2, 3))
+    fn = ((1.0 - p) * t).sum(dim=(2, 3))
+    tn = ((1.0 - p) * (1.0 - t)).sum(dim=(2, 3))
+
+    return {"tp": tp, "fp": fp, "fn": fn, "tn": tn}
+
+
+@torch.no_grad()
+def compute_all_metrics_vectorized(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    from_logits: bool = True,
+    threshold: float = 0.5,
+    eps: float = 1e-6,
+) -> dict[str, torch.Tensor]:
+    """Compute all pixel-level metrics for each sample in the batch in a single pass.
+
+    Parameters
+    ----------
+    pred : torch.Tensor
+        Predictions ``(B, C, H, W)``.
+    target : torch.Tensor
+        Ground-truth binary masks ``(B, C, H, W)``.
+    from_logits : bool
+        Apply sigmoid to *pred* before thresholding.
+    threshold : float
+        Decision boundary.
+    eps : float
+        Smoothing constant.
+
+    Returns
+    -------
+    dict[str, torch.Tensor]
+        Keys: ``"iou"``, ``"dice"``, ``"precision"``, ``"recall"``,
+        ``"f1"``, each of shape ``(B, C)``. Also includes
+        ``"confusion"`` sub-dict with ``"tp"``, ``"fp"``, ``"fn"``,
+        ``"tn"`` counts of shape ``(B, C)``.
+    """
+    cc = confusion_components_vectorized(pred, target, from_logits=from_logits, threshold=threshold)
+
+    tp, fp, fn = cc["tp"], cc["fp"], cc["fn"]
+
+    iou_val = (tp + eps) / (tp + fp + fn + eps)
+    dice_val = (2.0 * tp + eps) / (2.0 * tp + fp + fn + eps)
+    prec_val = (tp + eps) / (tp + fp + eps)
+    rec_val = (tp + eps) / (tp + fn + eps)
+    f1_val = (2.0 * prec_val * rec_val + eps) / (prec_val + rec_val + eps)
+
+    return {
+        "iou": iou_val,
+        "dice": dice_val,
+        "precision": prec_val,
+        "recall": rec_val,
+        "f1": f1_val,
+        "confusion": cc,
+    }
+
+
+# ======================================================================== #
 #  Aggregate helper                                                         #
 # ======================================================================== #
 

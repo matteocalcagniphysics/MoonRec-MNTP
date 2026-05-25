@@ -24,7 +24,8 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from .metrics import compute_all_metrics
+from tqdm import tqdm
+from .metrics import compute_all_metrics, compute_all_metrics_vectorized
 
 if TYPE_CHECKING:
     from .protocols import SegmentationModel
@@ -142,34 +143,32 @@ def evaluate_model(
     all_rec: list[np.ndarray] = []
     all_f1: list[np.ndarray] = []
 
-    for images, masks in dataloader:
+    for images, masks in tqdm(dataloader, desc=f"Evaluating {model.model_name}", leave=True):
         logits = model.predict(images)
         # Ensure masks match logits device
         masks = masks.to(logits.device).float()
 
-        # Per-sample metrics: iterate each sample in the batch
-        batch_size = images.shape[0]
-        for i in range(batch_size):
-            m = compute_all_metrics(
-                logits[i : i + 1],
-                masks[i : i + 1],
-                from_logits=from_logits,
-                threshold=threshold,
-            )
-            all_iou.append(m["iou"].cpu().numpy())
-            all_dice.append(m["dice"].cpu().numpy())
-            all_prec.append(m["precision"].cpu().numpy())
-            all_rec.append(m["recall"].cpu().numpy())
-            all_f1.append(m["f1"].cpu().numpy())
+        # Compute vectorized per-sample metrics for the whole batch
+        m = compute_all_metrics_vectorized(
+            logits,
+            masks,
+            from_logits=from_logits,
+            threshold=threshold,
+        )
+        all_iou.append(m["iou"].cpu().numpy())
+        all_dice.append(m["dice"].cpu().numpy())
+        all_prec.append(m["precision"].cpu().numpy())
+        all_rec.append(m["recall"].cpu().numpy())
+        all_f1.append(m["f1"].cpu().numpy())
 
     return EvaluationResult(
         model_name=model.model_name,
         class_names=class_names,
-        per_sample_iou=np.stack(all_iou) if all_iou else np.array([]),
-        per_sample_dice=np.stack(all_dice) if all_dice else np.array([]),
-        per_sample_precision=np.stack(all_prec) if all_prec else np.array([]),
-        per_sample_recall=np.stack(all_rec) if all_rec else np.array([]),
-        per_sample_f1=np.stack(all_f1) if all_f1 else np.array([]),
+        per_sample_iou=np.concatenate(all_iou, axis=0) if all_iou else np.array([]),
+        per_sample_dice=np.concatenate(all_dice, axis=0) if all_dice else np.array([]),
+        per_sample_precision=np.concatenate(all_prec, axis=0) if all_prec else np.array([]),
+        per_sample_recall=np.concatenate(all_rec, axis=0) if all_rec else np.array([]),
+        per_sample_f1=np.concatenate(all_f1, axis=0) if all_f1 else np.array([]),
     )
 
 
@@ -183,7 +182,7 @@ def bootstrap_confidence_interval(
     n_resamples: int = 1000,
     seed: int = 42,
 ) -> tuple[float, float, float]:
-    """Compute bootstrap confidence interval for the mean.
+    """Compute bootstrap confidence interval for the mean using vectorized NumPy operations.
 
     Parameters
     ----------
@@ -206,10 +205,10 @@ def bootstrap_confidence_interval(
     if n == 0:
         return 0.0, 0.0, 0.0
 
-    means = np.array([
-        rng.choice(values, size=n, replace=True).mean()
-        for _ in range(n_resamples)
-    ])
+    # Draw all resampled indices at once: shape (n_resamples, n)
+    indices = rng.integers(0, n, size=(n_resamples, n))
+    resampled_values = values[indices] # shape (n_resamples, n)
+    means = resampled_values.mean(axis=1) # shape (n_resamples,)
 
     alpha = 1.0 - confidence
     lo = float(np.percentile(means, 100 * alpha / 2))

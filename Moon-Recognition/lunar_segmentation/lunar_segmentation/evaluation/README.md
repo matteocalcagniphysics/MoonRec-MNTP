@@ -8,7 +8,6 @@ This module provides a comprehensive framework for evaluating lunar feature segm
 - **Instance-level Metrics**: Average Precision (AP) calculation for Mask R-CNN outputs.
 - **Model Comparison**: Automated orchestration to evaluate multiple models on a dataset.
 - **Statistical Significance**: Wilcoxon signed-rank tests and bootstrap confidence intervals for robust model comparison.
-- **Synthetic Data**: Utilities to generate realistic dummy data for pipeline validation.
 
 ## File Overview
 
@@ -16,7 +15,6 @@ This module provides a comprehensive framework for evaluating lunar feature segm
 - `comparison.py`: High-level orchestration for evaluating models and running statistical tests.
 - `instance_metrics.py`: COCO-style evaluation (AP/mAP) for instance segmentation (Mask R-CNN).
 - `protocols.py`: Structural contracts (PEP 544 Protocols) defining the model interface.
-- `synthetic.py`: Synthetic lunar imagery generators and mock models for testing.
 
 ## Quickstart
 
@@ -45,11 +43,4 @@ from lunar_segmentation.evaluation.comparison import significance_test
 # result_a and result_b are EvaluationResult objects from evaluate_model
 report = significance_test(result_a, result_b, metric="iou")
 print(report)
-```
-
-## Testing & Demos
-You can run a full demonstration of the evaluation pipeline using synthetic data:
-
-```bash
-python -m lunar_segmentation.evaluation.synthetic
 ```

@@ -14,6 +14,8 @@ from ..evaluation.metrics import (
     confusion_components,
     compute_all_metrics,
     threshold_sweep,
+    confusion_components_vectorized,
+    compute_all_metrics_vectorized,
 )
 
 __all__ = [
@@ -25,4 +27,6 @@ __all__ = [
     "confusion_components",
     "compute_all_metrics",
     "threshold_sweep",
+    "confusion_components_vectorized",
+    "compute_all_metrics_vectorized",
 ]

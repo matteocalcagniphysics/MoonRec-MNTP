@@ -1,0 +1,48 @@
+# Model Evaluation Orchestrator Configuration
+# ---------------------------------------------------------
+# Data settings
+# ---------------------------------------------------------
+data:
+  # Path to validation/evaluation tiles directory
+  data_root: "data/processed/tiles/marius_hills"
+  batch_size: 8
+  num_workers: 4 # dynamic multi-threaded loading
+
+# ---------------------------------------------------------
+# Models to evaluate
+# ---------------------------------------------------------
+models:
+  - name: "SmallUNet-Best"
+    type: "semantic" # semantic, cnn, or panoptic
+    checkpoint_path: "outputs/unet_best.pth"
+    class: "lunar_segmentation.models.unet.SmallUNet"
+    # Arguments passed directly to the model constructor
+    args:
+      in_channels: 3
+      num_classes: 7
+      base_width: 32
+      depth: 4
+      bottleneck_dropout: 0.3
+      decoder_dropout: 0.1
+
+# ---------------------------------------------------------
+# Evaluation Parameters
+# ---------------------------------------------------------
+eval_params:
+  threshold: 0.35
+  from_logits: true
+  bootstrap_confidence: 0.95
+  n_resamples: 1000
+
+# ---------------------------------------------------------
+# Output settings & Plots to generate
+# ---------------------------------------------------------
+outputs:
+  report_dir: "outputs/evaluation"
+  plots:
+    prediction_panel: true
+    class_comparison: true
+    metrics_summary: true
+    model_comparison: true
+    threshold_sensitivity: true
+    max_panel_samples: 5

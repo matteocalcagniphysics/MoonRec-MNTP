@@ -12,3 +12,4 @@ memory/
 CLAUDE.md
 data/
 */notebooks/catboost_info
+.vscode/

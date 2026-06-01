@@ -12,9 +12,9 @@ from backbone import ResNetFeatureMapsExtractor
 
 def make_fpn_resnet(name: str = 'resnet18',
                     fpn_type: str = 'fpn',
-                    out_size: Tuple[int, int] = (224, 224),
+                    out_size: Tuple[int, int] = (256, 256), # Input dimentions 
                     fpn_channels: int = 256,
-                    num_classes: int = 1000,
+                    num_classes: int = 7, # Classes to predict
                     pretrained: bool = True,
                     in_channels: int = 3) -> nn.Module:
     """Create an FPN model with a ResNet backbone.

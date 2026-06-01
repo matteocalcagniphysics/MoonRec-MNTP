@@ -1,9 +1,12 @@
 from typing import Tuple, Sequence, Optional, Iterable
-
 from torch import nn
-
 from containers import Parallel
 from layers import Interpolate, Sum
+from torchvision.ops import MultiScaleRoIAlign
+from torchvision.models.detection.rpn import RegionProposalNetwork, AnchorGenerator
+from torchvision.models.detection.roi_heads import RoIHeads
+from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNHeat, MaskRCNNPredictor
 
 
 class PanopticFPN(nn.Sequential):
@@ -181,3 +184,108 @@ class PanopticFPN(nn.Sequential):
         conv_block.append(upsample_layer)
         return nn.Sequential(*conv_block)
 
+
+class CustomMaskRCNNHeads(nn.Module):
+    def __init__(self, in_channels=256, num_classes=8):
+        super().__init__()
+        
+        # 1. Region Proposal Network (RPN)
+        # Configure anchor sizes for each FPN level (P2, P3, P4, P5, P6)
+        
+        # It basically creates anchors of different sizes and aspect ratios at each level of 
+        # the FPN to capture objects of various scales and shapes. 
+        # The aspect ratios (0.5, 1.0, 2.0) allow to stretch the anchors vertically. 
+        anchor_generator = AnchorGenerator(
+            sizes=((32,), (64,), (128,), (256,), (512,)),
+            aspect_ratios=((0.5, 1.0, 2.0),) * 5
+        )
+
+        # RPN head applies a 3x3 conv followed by classification and regression heads
+        rpn_head = nn.Sequential(
+            #in_channels = out_channels
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.rpn = RegionProposalNetwork(
+            anchor_generator, rpn_head,
+            fg_iou_thresh=0.7, # Foreground IoU threshold for positive anchors (could be an object) 
+            bg_iou_thresh=0.3, # Background IoU threshold for negative anchors (definitely not an object)
+            batch_size_per_image=256, # Samples a batch of anchors for training the RPN  
+            positive_fraction=0.5, # 50% of the batch should be positive anchors
+            pre_nms_top_n={'training': 2000, 'testing': 1000}, # Number of top scoring proposals to keep before applying NMS 
+            nms_thresh=0.7, # Threshold for non-maximum suppression to filter proposals (remove duplicates)
+            post_nms_top_n={'training': 2000, 'testing': 1000} # Number of proposals to keep after applying NMS
+        )
+        # Now I have available the proposals, thus I can go on with the RoI heads
+        
+        # Next I need to pool fixed-size boxes from each proposal
+        # Then they will be passed through the box head and mask head to get final predictions.
+
+        # 2. Multi-Scale RoI Poolers
+        # Box head wants a 7x7 spatial resolution 
+        # They are meant for claassification and bounding box regression
+        self.box_roi_pool = MultiScaleRoIAlign(
+            featmap_names=['0', '1', '2', '3'], # Corresponding to P2, P3, P4, P5
+            output_size=7,
+            sampling_ratio=2
+        )
+        # Mask head wants a 14x14 spatial resolution for better pixel accuracy
+        self.mask_roi_pool = MultiScaleRoIAlign(
+            featmap_names=['0', '1', '2', '3'],
+            output_size=14,
+            sampling_ratio=2
+        )
+        
+        # 3. Box Head Components
+        # TwoMLPHead flattens the 7x7 features and passes them through two Linear layers
+        box_head = TwoMLPHead(in_channels * 7 * 7, representation_size=1024)
+        box_predictor = FastRCNNPredictor(input_dim=1024, num_classes=num_classes)
+        
+        # 4. Mask Head Components
+        # A sequence of 4 convolutional layers to extract spatial patterns
+        mask_head = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
+        )
+        # Upsamples 14x14 features to 28x28 and predicts masks per class
+        mask_predictor = MaskRCNNPredictor(in_channels=in_channels, dim_reduced=256, num_classes=num_classes)
+        
+        # 5. Combine into RoIHeads
+        # This standard torchvision class manages the coordination between box and mask predictions
+        self.roi_heads = RoIHeads(
+            box_roi_pool=self.box_roi_pool,
+            box_head=box_head,
+            box_predictor=box_predictor,
+            fg_iou_thresh=0.5, bg_iou_thresh=0.5,
+            batch_size_per_image=512, positive_fraction=0.25,
+            bbox_reg_weights=None,
+            
+            mask_roi_pool=self.mask_roi_pool,
+            mask_head=mask_head,
+            mask_predictor=mask_predictor
+        )
+
+    def forward(self, fp_features, images, targets=None):
+        """
+        Args:
+            fp_features (dict): Dictionary mapping FPN level names (e.g., '0','1','2','3') to features
+            images (ImageList): Torchvision ImageList wrapper containing image shapes
+            targets (list[dict]): Ground truth annotations during training
+        """
+        # Convert dict keys if necessary to match expectations
+        # Pass features through RPN to get candidate bounding boxes (proposals)
+        proposals, rpn_losses = self.rpn(images, fp_features, targets)
+        
+        # Pass features and proposals through the RoI heads to generate detections/losses
+        detections, roi_losses = self.roi_heads(fp_features, proposals, images.image_sizes, targets)
+        
+        if self.training:
+            losses = {}
+            losses.update(rpn_losses)
+            losses.update(roi_losses)
+            return losses
+            
+        return detections

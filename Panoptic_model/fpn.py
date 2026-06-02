@@ -186,6 +186,20 @@ class PanopticFPN(nn.Sequential):
 
 
 class CustomMaskRCNNHeads(nn.Module):
+
+    """
+    FPN Output: Dictionary (Features)
+
+    RPN Input: Dictionary (Features) + List of Tensors (Images)
+
+    RPN Output: List of Tensors (Box coordinates)
+
+    Pooler Input: Dictionary (Features) + List of Tensors (Box coordinates)
+
+    Pooler Output: One massive 4D Tensor
+    
+    """
+
     def __init__(self, in_channels=256, num_classes=8):
         super().__init__()
         
@@ -217,14 +231,14 @@ class CustomMaskRCNNHeads(nn.Module):
             nms_thresh=0.7, # Threshold for non-maximum suppression to filter proposals (remove duplicates)
             post_nms_top_n={'training': 2000, 'testing': 1000} # Number of proposals to keep after applying NMS
         )
-        # Now I have available the proposals, thus I can go on with the RoI heads
+        # Now I have available the proposals (coordinates), thus I can go on with the RoI heads
         
         # Next I need to pool fixed-size boxes from each proposal
         # Then they will be passed through the box head and mask head to get final predictions.
 
         # 2. Multi-Scale RoI Poolers
         # Box head wants a 7x7 spatial resolution 
-        # They are meant for claassification and bounding box regression
+        # They are meant for classification and bounding box regression
         self.box_roi_pool = MultiScaleRoIAlign(
             featmap_names=['0', '1', '2', '3'], # Corresponding to P2, P3, P4, P5
             output_size=7,
@@ -239,11 +253,14 @@ class CustomMaskRCNNHeads(nn.Module):
         
         # 3. Box Head Components
         # TwoMLPHead flattens the 7x7 features and passes them through two Linear layers
+        # defines to which class this box belongs and how to adjust the box coordinates
         box_head = TwoMLPHead(in_channels * 7 * 7, representation_size=1024)
         box_predictor = FastRCNNPredictor(input_dim=1024, num_classes=num_classes)
         
         # 4. Mask Head Components
         # A sequence of 4 convolutional layers to extract spatial patterns
+        # This understand what pixels belong to the object in the box and which don't, 
+        # thus creating a binary mask for each class
         mask_head = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
@@ -289,3 +306,31 @@ class CustomMaskRCNNHeads(nn.Module):
             return losses
             
         return detections
+
+
+        """
+        How the targets should be structured for training:
+
+                target = {
+            # 1. Bounding Boxes
+            "boxes": torch.tensor([
+                [x1, y1, x2, y2],  # Box for Object 1
+                [x1, y1, x2, y2],  # Box for Object 2
+                ...
+            ], dtype=torch.float32), # Shape: [N, 4]
+
+            # 2. Class Labels
+            "labels": torch.tensor([
+                3,  # Object 1 is Class 3
+                1,  # Object 2 is Class 1
+                ...
+            ], dtype=torch.int64),   # Shape: [N]
+
+            # 3. Pixel Masks
+            "masks": torch.tensor([
+                [[...]], # Binary mask for Object 1
+                [[...]], # Binary mask for Object 2
+                ...
+            ], dtype=torch.uint8)    # Shape: [N, Height, Width]
+        }
+        """

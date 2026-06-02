@@ -60,7 +60,7 @@ def make_fpn_resnet(name: str = 'resnet18',
     
     # I will always have 3 channels in input: image shape is (3, 256, 256)
     if in_channels == 3:
-        backbone = ResNetFeatureMapsExtractor(resnet)
+        backbone = ResNetFeatureMapsExtractor(model=resnet)
 
     # Extracts feature maps shape
     feat_shapes = _get_shapes(backbone, channels=in_channels, size=out_size)
@@ -70,7 +70,6 @@ def make_fpn_resnet(name: str = 'resnet18',
             feat_shapes,
             hidden_channels=fpn_channels,
             out_channels=num_classes)
-    
     else:
         raise NotImplementedError()
  

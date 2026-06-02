@@ -1,12 +1,12 @@
 from typing import Tuple, Sequence, Optional, Iterable
 from torch import nn
-from containers import Parallel
-from layers import Interpolate, Sum
+from .containers import Parallel
+from .layers import Interpolate, Sum
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.rpn import RegionProposalNetwork, AnchorGenerator
 from torchvision.models.detection.roi_heads import RoIHeads
 from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredictor
-from torchvision.models.detection.mask_rcnn import MaskRCNNHeat, MaskRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNHeads, MaskRCNNPredictor
 
 
 class PanopticFPN(nn.Sequential):

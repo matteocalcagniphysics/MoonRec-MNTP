@@ -4,10 +4,10 @@ import torch
 from torch import nn
 import torchvision as tv
 
-from layers import Interpolate
-from fpn import PanopticFPN
-from utils import _get_shapes
-from backbone import ResNetFeatureMapsExtractor
+from .layers import Interpolate
+from .fpn import PanopticFPN
+from .utils import _get_shapes
+from .backbone import ResNetFeatureMapsExtractor
 
 
 def make_fpn_resnet(name: str = 'resnet18',

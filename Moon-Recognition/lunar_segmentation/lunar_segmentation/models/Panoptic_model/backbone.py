@@ -1,5 +1,5 @@
 from torch import nn
-from containers import SequentialMultiOutput
+from .containers import SequentialMultiOutput
 
 class ResNetFeatureMapsExtractor(nn.Module):
     def __init__(self, model: nn.Module, out_mask_rcnn: bool = False):

@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from containers import Parallel
+from .containers import Parallel
 
 
 class Residual(nn.Sequential):

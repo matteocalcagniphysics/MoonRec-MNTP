@@ -1,5 +1,8 @@
 from typing import Tuple, Sequence, Optional, Iterable
+import torch
 from torch import nn
+from torchvision.models.detection.image_list import ImageList   
+from collections import OrderedDict
 from .containers import Parallel
 from .layers import Interpolate, Sum
 from torchvision.ops import MultiScaleRoIAlign
@@ -298,11 +301,37 @@ class CustomMaskRCNNHeads(nn.Module):
         
         # Pass features and proposals through the RoI heads to generate detections/losses
         detections, roi_losses = self.roi_heads(fp_features, proposals, images.image_sizes, targets)
+         
+        return detections, rpn_losses, roi_losses
+
+class PanopticFPN(nn.Module):
+    def __init__(self, backbone, instance_head, semantic_head):
+        super().__init__()
+        self.backbone = backbone
         
-        if self.training:
-            losses = {}
-            losses.update(rpn_losses)
-            losses.update(roi_losses)
-            return losses
-            
-        return detections
+        # Your semantic segmentation branch
+        self.semantic_branch = semantic_head 
+        
+        # The class you provided above
+        self.instance_head = instance_head
+        
+
+    def forward(self, images_list, targets=None):
+        # 1. Format images
+        image_sizes = [img.shape[-2:] for img in images_list]
+        batched_image_tensor = torch.stack(images_list)
+        image_list_obj = ImageList(batched_image_tensor, image_sizes)
+        
+        # 2. Extract features
+        fp_features_list = self.backbone(batched_image_tensor)
+        fp_features_dict = OrderedDict([
+            (str(i), feat) for i, feat in enumerate(fp_features_list)
+        ])
+        
+        # 3. Get outputs
+        semantic_output = self.semantic_branch(fp_features_list)
+        
+        # Because of your fix, this line works safely in BOTH train and eval modes!
+        detections, rpn_losses, roi_losses = self.instance_head(fp_features_dict, image_list_obj, targets)
+        
+        return semantic_output, detections, rpn_losses, roi_losses

@@ -61,13 +61,18 @@ def build_models(name: str = 'resnet18',
 
     # Extracts feature maps shape
     feat_shapes = _get_shapes(backbone, channels=in_channels, size=out_size)
-    Semantic = SemanticBranch(
+    Semantic_head = SemanticBranch(
         feat_shapes,
         hidden_channels=fpn_channels,
         out_channels=num_classes)
     
+    Semantic_branch = nn.Sequential(
+        Semantic_head,
+        Interpolate(size=out_size)    
+    )
+
     Instance = CustomMaskRCNNHeads()
 
     # I return the three fundamental components of the architecture: 
     # the backbone, the semantic branch and the instance branch
-    return backbone, Semantic, Instance
+    return backbone, Semantic_branch, Instance

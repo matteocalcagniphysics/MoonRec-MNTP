@@ -6,11 +6,11 @@ from collections import OrderedDict
 from .containers import Parallel
 from .layers import Interpolate, Sum
 from torchvision.ops import MultiScaleRoIAlign
-from torchvision.models.detection.rpn import RegionProposalNetwork, AnchorGenerator
+from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionProposalNetwork
 from torchvision.models.detection.roi_heads import RoIHeads
 from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNHeads, MaskRCNNPredictor
-
+from torchvision.ops import FeaturePyramidNetwork
 
 class SemanticBranch(nn.Sequential):
     """
@@ -207,49 +207,38 @@ class CustomMaskRCNNHeads(nn.Module):
         super().__init__()
         
         # 1. Region Proposal Network (RPN)
-        # Configure anchor sizes for each FPN level (P2, P3, P4, P5, P6)
-        
-        # It basically creates anchors of different sizes and aspect ratios at each level of 
-        # the FPN to capture objects of various scales and shapes. 
-        # The aspect ratios (0.5, 1.0, 2.0) allow to stretch the anchors vertically. 
+        # Reverted to 5 levels because your backbone outputs 5 feature maps!
         anchor_generator = AnchorGenerator(
             sizes=((32,), (64,), (128,), (256,), (512,)),
             aspect_ratios=((0.5, 1.0, 2.0),) * 5
         )
 
-        # RPN head applies a 3x3 conv followed by classification and regression heads
-        rpn_head = nn.Sequential(
-            #in_channels = out_channels
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True)
+        # FIX 1: Use Torchvision's RPNHead instead of nn.Sequential
+        # It automatically handles the list of feature maps and calculates the regression layers
+        rpn_head = RPNHead(
+            in_channels, 
+            anchor_generator.num_anchors_per_location()[0]
         )
 
         self.rpn = RegionProposalNetwork(
             anchor_generator, rpn_head,
-            fg_iou_thresh=0.7, # Foreground IoU threshold for positive anchors (could be an object) 
-            bg_iou_thresh=0.3, # Background IoU threshold for negative anchors (definitely not an object)
-            batch_size_per_image=256, # Samples a batch of anchors for training the RPN  
-            positive_fraction=0.5, # 50% of the batch should be positive anchors
-            pre_nms_top_n={'training': 2000, 'testing': 1000}, # Number of top scoring proposals to keep before applying NMS 
-            nms_thresh=0.7, # Threshold for non-maximum suppression to filter proposals (remove duplicates)
-            post_nms_top_n={'training': 2000, 'testing': 1000} # Number of proposals to keep after applying NMS
+            fg_iou_thresh=0.7, bg_iou_thresh=0.3, 
+            batch_size_per_image=256, positive_fraction=0.5, 
+            pre_nms_top_n={'training': 2000, 'testing': 1000}, 
+            nms_thresh=0.7, 
+            post_nms_top_n={'training': 2000, 'testing': 1000} 
         )
-        # Now I have available the proposals (coordinates), thus I can go on with the RoI heads
         
-        # Next I need to pool fixed-size boxes from each proposal
-        # Then they will be passed through the box head and mask head to get final predictions.
-
         # 2. Multi-Scale RoI Poolers
-        # Box head wants a 7x7 spatial resolution 
-        # They are meant for classification and bounding box regression
+        # FIX 2: Added '4' to the featmap_names so they don't ignore the 5th map
         self.box_roi_pool = MultiScaleRoIAlign(
-            featmap_names=['0', '1', '2', '3'], # Corresponding to P2, P3, P4, P5
+            featmap_names=['0', '1', '2', '3', '4'], 
             output_size=7,
             sampling_ratio=2
         )
-        # Mask head wants a 14x14 spatial resolution for better pixel accuracy
+        
         self.mask_roi_pool = MultiScaleRoIAlign(
-            featmap_names=['0', '1', '2', '3'],
+            featmap_names=['0', '1', '2', '3', '4'],
             output_size=14,
             sampling_ratio=2
         )
@@ -258,7 +247,7 @@ class CustomMaskRCNNHeads(nn.Module):
         # TwoMLPHead flattens the 7x7 features and passes them through two Linear layers
         # defines to which class this box belongs and how to adjust the box coordinates
         box_head = TwoMLPHead(in_channels * 7 * 7, representation_size=1024)
-        box_predictor = FastRCNNPredictor(input_dim=1024, num_classes=num_classes)
+        box_predictor = FastRCNNPredictor(in_channels=1024, num_classes=num_classes)
         
         # 4. Mask Head Components
         # A sequence of 4 convolutional layers to extract spatial patterns
@@ -282,7 +271,9 @@ class CustomMaskRCNNHeads(nn.Module):
             fg_iou_thresh=0.5, bg_iou_thresh=0.5,
             batch_size_per_image=512, positive_fraction=0.25,
             bbox_reg_weights=None,
-            
+            score_thresh=0.05,       # Filters out absolutely terrible predictions early to save compute
+            nms_thresh=0.5,          # IoU threshold for Non-Maximum Suppression (removing duplicate overlapping boxes)
+            detections_per_img=100,  # Maximum number of final objects it is allowed to output per image
             mask_roi_pool=self.mask_roi_pool,
             mask_head=mask_head,
             mask_predictor=mask_predictor
@@ -305,16 +296,18 @@ class CustomMaskRCNNHeads(nn.Module):
         return detections, rpn_losses, roi_losses
 
 class PanopticFPN(nn.Module):
-    def __init__(self, backbone, instance_head, semantic_head):
+    # Added in_channels_list to map the raw ResNet18 outputs
+    def __init__(self, backbone, semantic_branch, instance_branch, in_channels_list=[64, 64, 128, 256, 512], out_channels=256):
         super().__init__()
         self.backbone = backbone
+        self.semantic_branch = semantic_branch 
+        self.instance_branch = instance_branch  
         
-        # Your semantic segmentation branch
-        self.semantic_branch = semantic_head 
-        
-        # The class you provided above
-        self.instance_head = instance_head
-        
+        # FIX: The missing bridge! This will standardize the ResNet features into 256 channels
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=in_channels_list,
+            out_channels=out_channels
+        )
 
     def forward(self, images_list, targets=None):
         # 1. Format images
@@ -322,16 +315,22 @@ class PanopticFPN(nn.Module):
         batched_image_tensor = torch.stack(images_list)
         image_list_obj = ImageList(batched_image_tensor, image_sizes)
         
-        # 2. Extract features
+        # 2. Extract RAW features from ResNet (List of 64, 64, 128, 256, 512 channels)
         fp_features_list = self.backbone(batched_image_tensor)
+        
+        # 3. The Semantic Branch accepts the RAW list directly
+        semantic_output = self.semantic_branch(fp_features_list)
+        
+        # 4. Convert the RAW list to an OrderedDict for the FPN
         fp_features_dict = OrderedDict([
             (str(i), feat) for i, feat in enumerate(fp_features_list)
         ])
         
-        # 3. Get outputs
-        semantic_output = self.semantic_branch(fp_features_list)
+        # 5. FIX: Pass the raw dictionary through the new FPN bridge! 
+        # This returns a NEW dictionary where every tensor perfectly has 256 channels.
+        fpn_features_dict = self.fpn(fp_features_dict)
         
-        # Because of your fix, this line works safely in BOTH train and eval modes!
-        detections, rpn_losses, roi_losses = self.instance_head(fp_features_dict, image_list_obj, targets)
+        # 6. Pass the STANDARDIZED FPN dictionary to your Instance Head!
+        detections, rpn_losses, roi_losses = self.instance_branch(fpn_features_dict, image_list_obj, targets)
         
         return semantic_output, detections, rpn_losses, roi_losses

@@ -13,7 +13,7 @@ from .backbone import ResNetFeatureMapsExtractor
 def build_models(name: str = 'resnet18',
                     out_size: Tuple[int, int] = (256, 256), # Input dimentions 
                     fpn_channels: int = 256,
-                    num_classes: int = 7, # Classes to predict
+                    num_classes: int = 8, # Classes to predict
                     pretrained: bool = True,
                     in_channels: int = 3) -> nn.Module:
     """Create an FPN model with a ResNet backbone.
@@ -71,7 +71,7 @@ def build_models(name: str = 'resnet18',
         Interpolate(size=out_size)    
     )
 
-    Instance = CustomMaskRCNNHeads()
+    Instance = CustomMaskRCNNHeads(num_classes=num_classes)
 
     # I return the three fundamental components of the architecture: 
     # the backbone, the semantic branch and the instance branch

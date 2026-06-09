@@ -9,7 +9,7 @@ from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredict
 from torchvision.models.detection.mask_rcnn import MaskRCNNHeads, MaskRCNNPredictor
 
 
-class PanopticFPN(nn.Sequential):
+class SemanticBranch(nn.Sequential):
     """
     Implementation of the architecture described in the paper
     "Panoptic Feature Pyramid Networks" by Kirilov et al.,
@@ -306,31 +306,3 @@ class CustomMaskRCNNHeads(nn.Module):
             return losses
             
         return detections
-
-
-        """
-        How the targets should be structured for training:
-
-                target = {
-            # 1. Bounding Boxes
-            "boxes": torch.tensor([
-                [x1, y1, x2, y2],  # Box for Object 1
-                [x1, y1, x2, y2],  # Box for Object 2
-                ...
-            ], dtype=torch.float32), # Shape: [N, 4]
-
-            # 2. Class Labels
-            "labels": torch.tensor([
-                3,  # Object 1 is Class 3
-                1,  # Object 2 is Class 1
-                ...
-            ], dtype=torch.int64),   # Shape: [N]
-
-            # 3. Pixel Masks
-            "masks": torch.tensor([
-                [[...]], # Binary mask for Object 1
-                [[...]], # Binary mask for Object 2
-                ...
-            ], dtype=torch.uint8)    # Shape: [N, Height, Width]
-        }
-        """

@@ -4,7 +4,7 @@ from torch import nn
 from typing import Any
 from torchvision.models.detection.image_list import ImageList   
 from collections import OrderedDict
-from .layers import Interpolate, Sum
+from .PAN2_layers import Interpolate, Sum
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionProposalNetwork
 from torchvision.models.detection.roi_heads import RoIHeads

@@ -3,7 +3,6 @@ from torch import nn
 from torch.nn import functional as F
 
 
-
 class ModulizedFunction(nn.Module):
     """Convert a function to an nn.Module."""
 

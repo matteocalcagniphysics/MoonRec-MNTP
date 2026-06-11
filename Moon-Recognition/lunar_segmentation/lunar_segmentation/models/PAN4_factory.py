@@ -4,9 +4,9 @@ import torch
 from torch import nn
 import torchvision as tv
 
-from .layers import Interpolate
-from .fpn import SemanticBranch, CustomMaskRCNNHeads
-from .backbone import ResNetFeatureMapsExtractor
+from .PAN2_layers import Interpolate
+from .PAN3_fpn import SemanticBranch, CustomMaskRCNNHeads
+from .PAN1_backbone import ResNetFeatureMapsExtractor
 
 
 

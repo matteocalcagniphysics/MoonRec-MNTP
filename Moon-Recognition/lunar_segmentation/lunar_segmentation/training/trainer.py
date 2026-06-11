@@ -5,6 +5,7 @@ import pandas as pd
 import logging
 from torchmetrics.detection import MeanAveragePrecision
 import torch.nn.functional as F
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,9 @@ class PanopticTrainer:
     def train_one_epoch(self, loader):
         self.model.train()
         losses = []
+
+        pbar = tqdm(loader, desc="Training Batch")
+
         for images, semantic_targets, instance_targets in loader:
             # Move list of image tensors to device
             images = [img.to(self.device) for img in images]
@@ -168,7 +172,11 @@ class PanopticTrainer:
             total_loss = semantic_loss + instance_loss
             total_loss.backward()
             self.optimizer.step()
-            losses.append(total_loss.item())
+            current_loss = total_loss.item() 
+            losses.append(current_loss)
+
+            pbar.set_postfix(loss=f"{current_loss:.4f}")
+
         return float(np.mean(losses)) if losses else np.nan
 
     def evaluate(self, loader, criterion=None):

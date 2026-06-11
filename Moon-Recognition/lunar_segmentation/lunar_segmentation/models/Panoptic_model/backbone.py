@@ -1,5 +1,48 @@
 from torch import nn
-from .containers import SequentialMultiOutput
+from typing import Any
+
+#############################################################################
+# PYRAMID OUTPUT STRUCTURE 
+#############################################################################
+
+class SequentialMultiOutput(nn.Sequential):
+    """
+    Like nn.Squential but returns all intermediate outputs as a tuple.
+
+      input
+        │
+        │
+        V
+    [1st layer]───────> 1st out
+        │
+        │
+        V
+    [2nd layer]───────> 2nd out
+        │
+        │
+        V
+        .
+        .
+        .
+        │
+        │
+        V
+    [nth layer]───────> nth out
+
+    """
+
+    def forward(self, x: Any) -> tuple:
+        outs = [None] * len(self)
+        last_out = x
+        for i, module in enumerate(self):
+            last_out = module(last_out)
+            outs[i] = last_out
+        return tuple(outs)
+
+
+#############################################################################
+# RESNET BACKBONE FOR THE FPN
+#############################################################################
 
 class ResNetFeatureMapsExtractor(nn.Module):
     def __init__(self, model: nn.Module, out_mask_rcnn: bool = False):

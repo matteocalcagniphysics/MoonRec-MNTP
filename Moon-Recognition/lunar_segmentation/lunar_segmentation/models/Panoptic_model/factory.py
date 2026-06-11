@@ -1,20 +1,46 @@
-from typing import Tuple
+from typing import Tuple, List
 
 import torch
 from torch import nn
 import torchvision as tv
 
 from .layers import Interpolate
-from .fpn import SemanticBranch
-from .utils import _get_shapes
+from .fpn import SemanticBranch, CustomMaskRCNNHeads
 from .backbone import ResNetFeatureMapsExtractor
 
 
-def make_fpn_resnet(name: str = 'resnet18',
-                    fpn_type: str = 'fpn',
+
+def _get_shapes(model: nn.Module,
+                channels: int = 3,
+                size: Tuple[int, int] = (224, 224)) -> List[Tuple[int, ...]]:
+    """Extract shapes of feature maps computed by the model.
+
+    The model must be an nn.Module whose __call__ method returns all feature
+    maps when called with an input.
+    """
+    # save state so we can restore laterD
+    state = model.training
+
+    model.eval()
+    with torch.no_grad():
+        x = torch.empty(1, channels, *size)
+        feats = model(x)
+
+    # restore state
+    model.train(state)
+
+    if isinstance(feats, torch.Tensor):
+        feats = [feats]
+
+    feat_shapes = [f.shape for f in feats]
+    return feat_shapes
+
+
+
+def build_models(name: str = 'resnet18',
                     out_size: Tuple[int, int] = (256, 256), # Input dimentions 
                     fpn_channels: int = 256,
-                    num_classes: int = 7, # Classes to predict
+                    num_classes: int = 8, # Classes to predict
                     pretrained: bool = True,
                     in_channels: int = 3) -> nn.Module:
     """Create an FPN model with a ResNet backbone.
@@ -28,8 +54,6 @@ def make_fpn_resnet(name: str = 'resnet18',
     Args:
         name (str, optional): Name of the resnet backbone. Only those available
             in torchvision are supported. Defaults to 'resnet18'.
-        fpn_type (str, optional): Type of FPN. 'fpn' | 'panoptic' | 'panet'.
-            Defaults to 'fpn'.
         out_size (Tuple[int, int], optional): Size of segmentation output.
             Defaults to (224, 224).
         fpn_channels (int, optional): Number of hidden channels to use in the
@@ -46,7 +70,7 @@ def make_fpn_resnet(name: str = 'resnet18',
         NotImplementedError: On unknown fpn_style.
 
     Returns:
-        nn.Module: the FPN model
+        nn.Module: the three fundamental models for the panoptic architecture
     """
 
     # Checks if the needed inputs are present or not
@@ -64,20 +88,18 @@ def make_fpn_resnet(name: str = 'resnet18',
 
     # Extracts feature maps shape
     feat_shapes = _get_shapes(backbone, channels=in_channels, size=out_size)
+    Semantic_head = SemanticBranch(
+        feat_shapes,
+        hidden_channels=fpn_channels,
+        out_channels=num_classes)
     
-    if fpn_type == 'panoptic':
-        fpn = SemanticBranch(
-            feat_shapes,
-            hidden_channels=fpn_channels,
-            out_channels=num_classes)
-    else:
-        raise NotImplementedError()
- 
-    # BUILD THE MODEL
-    # yapf: disable
-    model = nn.Sequential(
-        backbone,
-        fpn,
-        Interpolate(size=out_size))
-    # yapf: enable
-    return model
+    Semantic_branch = nn.Sequential(
+        Semantic_head,
+        Interpolate(size=out_size)    
+    )
+
+    Instance_branch = CustomMaskRCNNHeads(num_classes=num_classes)
+
+    # I return the three fundamental components of the architecture: 
+    # the backbone, the semantic branch and the instance branch
+    return backbone, Semantic_branch, Instance_branch

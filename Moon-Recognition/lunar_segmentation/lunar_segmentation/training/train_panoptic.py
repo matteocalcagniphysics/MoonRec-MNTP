@@ -14,7 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, panoptic_collate_fn
 import lunar_segmentation.training.trainer as trainer
-from lunar_segmentation.models.Panoptic_model.new_factory import build_models
+from lunar_segmentation.models.Panoptic_model.factory import build_models
 from lunar_segmentation.models.Panoptic_model.fpn import PanopticFPN
 
 BASEPATH = '/home/matteocalcagni/Desktop/MoonRec-MNTP/data/MR/'

@@ -1,9 +1,9 @@
 from typing import Tuple, Sequence, Optional, Iterable
 import torch
 from torch import nn
+from typing import Any
 from torchvision.models.detection.image_list import ImageList   
 from collections import OrderedDict
-from .containers import Parallel
 from .layers import Interpolate, Sum
 from torchvision.ops import MultiScaleRoIAlign
 from torchvision.models.detection.rpn import AnchorGenerator, RPNHead, RegionProposalNetwork
@@ -11,6 +11,21 @@ from torchvision.models.detection.roi_heads import RoIHeads
 from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNHeads, MaskRCNNPredictor
 from torchvision.ops import FeaturePyramidNetwork
+
+
+class Parallel(nn.ModuleList):
+    ''' Passes inputs through multiple `nn.Module`s in parallel.
+    Returns a tuple of outputs.
+    '''
+
+    def forward(self, xs: Any) -> tuple:
+        # if multiple inputs, pass the 1st input through the 1st module,
+        # the 2nd input through the 2nd module, and so on.
+        if isinstance(xs, (list, tuple)):
+            return tuple(m(x) for m, x in zip(self, xs))
+        # if single input, pass it through all modules
+        return tuple(m(xs) for m in self)
+
 
 class SemanticBranch(nn.Sequential):
     """

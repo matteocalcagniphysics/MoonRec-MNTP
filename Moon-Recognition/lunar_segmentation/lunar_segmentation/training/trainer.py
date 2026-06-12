@@ -152,7 +152,7 @@ class PanopticTrainer:
 
         pbar = tqdm(loader, desc="Training Batch")
 
-        for images, semantic_targets, instance_targets in loader:
+        for images, semantic_targets, instance_targets in pbar:
             # Move list of image tensors to device
             images = [img.to(self.device) for img in images]
             

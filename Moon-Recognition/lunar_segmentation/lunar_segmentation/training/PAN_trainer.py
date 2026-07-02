@@ -17,7 +17,9 @@ import lunar_segmentation.training.trainer as trainer
 from lunar_segmentation.models.PAN4_factory import build_models
 from lunar_segmentation.models.PAN3_fpn import PanopticFPN
 
-BASEPATH = '/home/matteocalcagni/Desktop/MoonRec-MNTP/data/MR/'
+BASEPATH = '/mnt_volume/MoonRec-MNTP/data/MR/'
+MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'
+
 
 # Load the dataset 
 index_df = pd.read_csv(BASEPATH + 'tiles/index.csv')
@@ -40,7 +42,7 @@ backbone, semantic_branch, instance_branch = build_models(name='resnet18', num_c
 panoptic_model = PanopticFPN(backbone=backbone, semantic_branch=semantic_branch, instance_branch=instance_branch)
 
 # Train the model
-NEPOCHS = 1
+NEPOCHS = 20
 optimizer = optim.Adam(panoptic_model.parameters(), lr=1e-4)
 
 # Semantic Criterion 
@@ -74,5 +76,16 @@ for epoch in range(NEPOCHS):
     # Evaluate
     epoch_metrics = trainer_instance.evaluate(val_loader, criterion=criterion)
     metrics.append(epoch_metrics)
+
+    MODEL_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = MODEL_WEIGHTS_DIR / f'panoptic_epoch_{epoch+1}.pth'
+    torch.save(panoptic_model.state_dict(), save_path)
+    print(f"Weights saved to {save_path}")
+
+
+# Save final weights at the end of the training
+final_save_path = MODEL_WEIGHTS_DIR / 'panoptic_final.pth'
+torch.save(panoptic_model.state_dict(), final_save_path)
+print(f"Final weights saved to {final_save_path}")
 
 print("\nFinal Training Losses:", losses)

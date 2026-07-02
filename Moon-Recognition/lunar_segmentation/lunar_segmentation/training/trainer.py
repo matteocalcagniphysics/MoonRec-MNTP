@@ -152,7 +152,7 @@ class PanopticTrainer:
 
         pbar = tqdm(loader, desc="Training Batch")
 
-        for images, semantic_targets, instance_targets in loader:
+        for images, semantic_targets, instance_targets in pbar:
             # Move list of image tensors to device
             images = [img.to(self.device) for img in images]
             
@@ -220,7 +220,11 @@ class PanopticTrainer:
             
             # Global mAP computation after processing all batches, then transform results to a DataFrame for logging
             mAP_dict = self.metric.compute()
-            metrics_clean = {k: v.item() for k, v in mAP_dict.items()}
+            # Some keys (e.g. map_per_class) are multi-element tensors: convert scalars with .item(), vectors with .tolist()
+            metrics_clean = {
+                k: v.item() if v.numel() == 1 else v.tolist()
+                for k, v in mAP_dict.items()
+            }
             instance_metrics_df = pd.Series(metrics_clean).to_frame(name='value')
             
             logger.info("Evaluation Metrics:")

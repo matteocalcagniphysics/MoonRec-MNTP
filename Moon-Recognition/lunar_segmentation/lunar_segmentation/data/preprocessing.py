@@ -133,7 +133,7 @@ def save_tiles_for_aoi(aoi_name: str, bounds, raster_path: Path, labels: dict,
     """
     Tiles a lunar raster and its labels, saving them as .npz files.
     """
-    from ..utils.geo_utils import crop_singleband_raster  # Expected helper
+    from ..utils.geo_utils import crop_singleband_raster
 
     img_gray, transform, profile = crop_singleband_raster(raster_path, bounds)
     if img_gray.size == 0 or img_gray.shape[0] < tile_size or img_gray.shape[1] < tile_size:
@@ -174,3 +174,178 @@ def save_tiles_for_aoi(aoi_name: str, bounds, raster_path: Path, labels: dict,
         })
 
     return pd.DataFrame(records)
+
+
+# ---------------------------------------------------------------------------
+# Added functions — tile QA, spatial split, class distribution
+# ---------------------------------------------------------------------------
+
+def is_valid_tile(image: np.ndarray, stripe_threshold: float = 2.0) -> bool:
+    """
+    Returns False if the tile has horizontal stripe artifacts.
+
+    Stripes cause high column variance relative to row variance.
+    Threshold 2.0 was calibrated on slide 23 examples:
+      rejected tiles (r00000_c00052/55/60) scored 2.76-4.12,
+      valid tile (r00074_c00170) scored 1.02.
+
+    Parameters
+    ----------
+    image            : (C, H, W) tile image
+    stripe_threshold : col_var / row_var ratio above which tile is rejected
+    """
+    gray = image[0].astype(np.float32)
+    row_var = float(np.var(gray, axis=1).mean())
+    col_var = float(np.var(gray, axis=0).mean())
+    stripe_score = col_var / (row_var + 1e-8)
+    is_valid = stripe_score < stripe_threshold
+    logger.debug(f"stripe_score={stripe_score:.2f} → {'valid' if is_valid else 'rejected'}")
+    return is_valid
+
+
+def spatial_train_val_split(
+    index_df: pd.DataFrame,
+    val_fraction: float = 0.2,
+    split_axis: str = 'row',
+) -> tuple:
+    """
+    Split tiles by geographic position to avoid data leakage.
+
+    A random split leaks information because adjacent tiles share up to 50%
+    of their pixels (stride=128, tile_size=256). Splitting on row or col
+    ensures train and val tiles come from different regions of the mosaic.
+
+    Parameters
+    ----------
+    index_df     : DataFrame with columns row, col, tile_path, ...
+    val_fraction : fraction of tiles for validation (default 0.2)
+    split_axis   : 'row' splits horizontally, 'col' vertically
+
+    Returns
+    -------
+    train_df, val_df
+    """
+    threshold = int(np.quantile(index_df[split_axis].values, 1 - val_fraction))
+    train_df = index_df[index_df[split_axis] < threshold].reset_index(drop=True)
+    val_df   = index_df[index_df[split_axis] >= threshold].reset_index(drop=True)
+    logger.info(
+        f"Spatial split on '{split_axis}' at {threshold}: "
+        f"{len(train_df)} train / {len(val_df)} val tiles"
+    )
+    return train_df, val_df
+
+
+def compute_class_distribution(
+    index_df: pd.DataFrame,
+    tile_dir: Path | None = None,
+) -> pd.DataFrame:
+    """
+    Per-class tile counts and pixel counts across the dataset.
+
+    Used to compute the class_weights in unet_config.yaml:
+    suggested_weight = 100 / freq_percent.
+
+    Parameters
+    ----------
+    index_df : DataFrame from index.csv
+    tile_dir : optional base directory for relative tile paths
+
+    Returns
+    -------
+    DataFrame: class, n_tiles, total_pixels, freq_percent, suggested_weight
+    """
+    counts  = {name: 0 for name in CLASS_NAMES}
+    n_tiles = {name: 0 for name in CLASS_NAMES}
+    total   = 0
+
+    for _, row in index_df.iterrows():
+        path = Path(row['tile_path'])
+        if tile_dir is not None and not path.is_absolute():
+            path = tile_dir / path
+        if not path.exists():
+            continue
+        data = np.load(path)
+        mask = data['mask']
+        total += 1
+        for c, name in enumerate(CLASS_NAMES):
+            if mask[c].sum() > 0:
+                n_tiles[name] += 1
+                counts[name]  += int(mask[c].sum())
+
+    records = []
+    for name in CLASS_NAMES:
+        freq = n_tiles[name] / max(total, 1) * 100
+        records.append({
+            'class':            name,
+            'n_tiles':          n_tiles[name],
+            'total_pixels':     counts[name],
+            'freq_percent':     round(freq, 2),
+            'suggested_weight': round(100.0 / max(freq, 0.01), 1),
+        })
+
+    logger.info(f"Class distribution computed on {total} tiles.")
+    return pd.DataFrame(records)
+    
+    
+    
+    
+# =============================================================================
+# OPTIONAL BULK PREPROCESSING SCRIPT (COMMENTED OUT FOR SAFETY)
+# To execute this pipeline, uncomment the block below and run: python preprocessing.py
+# =============================================================================
+# if __name__ == "__main__":
+#     import geopandas as gpd
+#     
+#     # 1. Setup local data paths using Path.home() for portability
+#     BASE_DATA_DIR = Path.home() / 'MoonRec-MNTP' / 'data' / 'MR'
+#     RASTER_PATH = BASE_DATA_DIR / 'lunar_mosaic.tif'
+#     
+#     # Define isolated directory for processed outputs to protect raw data
+#     NEW_PROCESSED_DIR = BASE_DATA_DIR / 'processed_dataset'
+#     TILES_OUTPUT_DIR = NEW_PROCESSED_DIR / 'tiles'
+#     
+#     TILES_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+#     
+#     print("Paths configured:")
+#     print(f" Raw data source: {BASE_DATA_DIR}")
+#     print(f" Processed output target: {NEW_PROCESSED_DIR}\n")
+# 
+#     # 2. Load vector spatial layers (GeoJSON) - Requires geopandas
+#     print("Loading GeoJSON files...")
+#     labels_dict = {}
+#     
+#     geojson_files = {
+#         'impact_crater': BASE_DATA_DIR / 'craters.geojson',
+#         'wrinkle_ridge': BASE_DATA_DIR / 'ridges.geojson',
+#         # Add additional class layers here if required
+#     }
+#     
+#     for class_name, file_path in geojson_files.items():
+#         if file_path.exists():
+#             labels_dict[class_name] = gpd.read_file(file_path)
+#             print(f" Loaded {class_name} ({len(labels_dict[class_name])} features)")
+#         else:
+#             print(f" Warning: {file_path} not found. Skipping class '{class_name}'.")
+#     
+#     # 3. Execute processing pipeline
+#     print("\nExecuting bulk preprocessing...")
+#     
+#     if not RASTER_PATH.exists():
+#         print(f" Error: Lunar mosaic TIF not found at {RASTER_PATH}")
+#     else:
+#         index_df = save_tiles_for_aoi(
+#             aoi_name="marius_hills",
+#             bounds=(0, 0, 10000, 10000),
+#             raster_path=RASTER_PATH,
+#             labels=labels_dict,
+#             processed_dir=TILES_OUTPUT_DIR
+#         )
+#         
+#         # Save generated dataset index to output directory
+#         csv_final_path = NEW_PROCESSED_DIR / "index.csv"
+#         index_df.to_csv(csv_final_path, index=False)
+#         
+#         print(f"\nPreprocessing finished.")
+#         print(f" Tiles generated in: {TILES_OUTPUT_DIR}")
+#         print(f" Index saved to: {csv_final_path}")
+#         print(" Verify 'processed_dataset/' is added to .gitignore before pushing.")

@@ -32,10 +32,11 @@ class Up(nn.Module):
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        diff_y = x2.size()[2] - x1.size()[2]
-        diff_x = x2.size()[3] - x1.size()[3]
+        diff_y = x2.size()[2] - x1.size()[2]    # Computes the difference in height between the two feature maps
+        diff_x = x2.size()[3] - x1.size()[3]    # Computes the difference in width between the two feature maps
+        # Apply symmetric padding to x1 to match the size of x2
         x1 = nn.functional.pad(x1, [diff_x // 2, diff_x - diff_x // 2, diff_y // 2, diff_y - diff_y // 2])
-        x = torch.cat([x2, x1], dim=1)
+        x = torch.cat([x2, x1], dim=1)  
         return self.conv(x)
 
 class OutConv(nn.Module):
@@ -49,10 +50,10 @@ class OutConv(nn.Module):
 class SmallUNet(nn.Module):
     def __init__(self, in_channels: int = 3, num_classes: int = 1, base_width: int = 32):
         super().__init__()
-        self.inc = DoubleConv(in_channels, base_width)
-        self.down1 = Down(base_width, base_width * 2)
-        self.down2 = Down(base_width * 2, base_width * 4)
-        self.down3 = Down(base_width * 4, base_width * 8)
+        self.inc = DoubleConv(in_channels, base_width)      # 3x256x256 -> 32x256x256
+        self.down1 = Down(base_width, base_width * 2)       # 32x256x256 -> 64x128x128
+        self.down2 = Down(base_width * 2, base_width * 4)   # 64x128x128 -> 128x64x64
+        self.down3 = Down(base_width * 4, base_width * 8)   # 128x64x64 -> 256x32x32
         self.up1 = Up(base_width * 8, base_width * 4)
         self.up2 = Up(base_width * 4, base_width * 2)
         self.up3 = Up(base_width * 2, base_width)

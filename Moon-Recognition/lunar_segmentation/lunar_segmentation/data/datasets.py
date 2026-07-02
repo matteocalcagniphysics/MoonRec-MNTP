@@ -88,7 +88,10 @@ class MoonTileTestDataset_RCNN(Dataset):
         # If I will use a panoptic architecture, I need to return the semantic target as well
         if self.for_panoptic:
             # Collapse the [C, H, W] mask into a single [H, W] map of class IDs
-            semantic_map = np.argmax(mask, axis=0)
+            # Class 0 is reserved for background. Foreground classes are 1 to C.
+            background_mask = (mask.sum(axis=0) == 0)
+            semantic_map = np.argmax(mask, axis=0) + 1
+            semantic_map[background_mask] = 0
             semantic_target = torch.as_tensor(semantic_map, dtype=torch.long)
         
         # Geometry estraction for Mask R-CNN

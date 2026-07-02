@@ -199,7 +199,10 @@ class PanopticTrainer:
 
                 logits, detections, _, _ = self.model(images, instance_targets)
                 if criterion:
-                    semantic_metrics_list.append(multilabel_metrics(logits, semantic_targets))
+                    # Convert integer target [B, H, W] to one-hot float mask [B, C, H, W]
+                    targets_one_hot = F.one_hot(semantic_targets, num_classes=logits.shape[1]).permute(0, 3, 1, 2).float()
+                    # Skip the background channel (index 0) for metrics matching CLASS_NAMES
+                    semantic_metrics_list.append(multilabel_metrics(logits[:, 1:], targets_one_hot[:, 1:]))
                 else:
                     # If no criterion provided, we just need logits
                     pass

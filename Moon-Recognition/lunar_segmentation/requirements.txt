@@ -17,6 +17,7 @@ pyogrio
 # Deep Learning
 torch
 torchvision
+torchmetrics
 albumentations
 
 # Evaluation

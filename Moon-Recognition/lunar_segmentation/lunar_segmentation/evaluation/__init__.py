@@ -15,7 +15,13 @@ from .metrics import (
     confusion_components_vectorized,
     compute_all_metrics_vectorized,
 )
-from .protocols import SegmentationModel, SemanticModelAdapter
+from .protocols import (
+    SegmentationModel,
+    SemanticModelAdapter,
+    register_adapter,
+    create_adapter,
+)
+from .mask_rcnn_adapter import InstanceModelAdapter
 from .comparison import EvaluationResult, evaluate_model
 
 __all__ = [
@@ -29,9 +35,12 @@ __all__ = [
     "compute_all_metrics",
     "confusion_components_vectorized",
     "compute_all_metrics_vectorized",
-    # Protocols
+    # Protocols & Registry
     "SegmentationModel",
     "SemanticModelAdapter",
+    "InstanceModelAdapter",
+    "register_adapter",
+    "create_adapter",
     # Comparison
     "EvaluationResult",
     "evaluate_model",

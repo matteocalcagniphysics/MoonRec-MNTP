@@ -6,11 +6,19 @@ instead of abstract base classes means collaborators do **not** need to
 inherit from anything — their models just need the right method signatures
 (structural subtyping / typed duck-typing).
 
+Additionally provides an **Adapter Registry** so that new model types
+(semantic, instance, panoptic …) can be plugged in via a simple
+``@register_adapter("type_name")`` decorator, without touching the
+evaluation orchestrator.
+
 Typical usage
 -------------
->>> from lunar_segmentation.evaluation.protocols import SemanticModelAdapter
->>> adapter = SemanticModelAdapter(model=my_unet, model_name="SmallUNet-v1")
->>> logits = adapter.predict(batch_of_images)
+>>> from lunar_segmentation.evaluation.protocols import create_adapter
+>>> adapter = create_adapter(
+...     model=my_model, model_name="MaskRCNN-v1",
+...     model_type="instance", score_threshold=0.5,
+... )
+>>> semantic_mask = adapter.predict(batch_of_images)   # (B, C, H, W)
 """
 
 from __future__ import annotations
@@ -24,16 +32,91 @@ import torch.nn as nn
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Protocols
-# ---------------------------------------------------------------------------
+# ======================================================================== #
+#  Adapter Registry                                                         #
+# ======================================================================== #
+
+_ADAPTER_REGISTRY: dict[str, type] = {}
+
+
+def register_adapter(model_type: str):
+    """Class decorator that registers an adapter in the global registry.
+
+    Parameters
+    ----------
+    model_type : str
+        Key used in the YAML config ``type`` field (e.g. ``"semantic"``,
+        ``"instance"``, ``"panoptic"``).
+
+    Example
+    -------
+    >>> @register_adapter("instance")
+    ... class InstanceModelAdapter:
+    ...     ...
+    """
+    def decorator(cls):
+        if model_type in _ADAPTER_REGISTRY:
+            logger.warning(
+                f"Adapter type '{model_type}' already registered "
+                f"({_ADAPTER_REGISTRY[model_type].__name__}); "
+                f"overwriting with {cls.__name__}."
+            )
+        _ADAPTER_REGISTRY[model_type] = cls
+        return cls
+    return decorator
+
+
+def create_adapter(
+    model: nn.Module,
+    model_name: str,
+    model_type: str = "semantic",
+    **kwargs,
+):
+    """Factory: instantiate the correct adapter based on *model_type*.
+
+    Parameters
+    ----------
+    model : nn.Module
+        The underlying PyTorch model.
+    model_name : str
+        Human-readable name for reports / plots.
+    model_type : str
+        Must match a key previously registered via
+        :func:`register_adapter`.
+    **kwargs
+        Extra arguments forwarded to the adapter constructor
+        (e.g. ``score_threshold``, ``mask_threshold``).
+
+    Returns
+    -------
+    object
+        An adapter instance satisfying :class:`SegmentationModel`.
+
+    Raises
+    ------
+    ValueError
+        If *model_type* is not found in the registry.
+    """
+    adapter_cls = _ADAPTER_REGISTRY.get(model_type)
+    if adapter_cls is None:
+        raise ValueError(
+            f"Unknown model type '{model_type}'. "
+            f"Registered types: {sorted(_ADAPTER_REGISTRY.keys())}"
+        )
+    return adapter_cls(model=model, model_name=model_name, **kwargs)
+
+
+# ======================================================================== #
+#  Protocols                                                                #
+# ======================================================================== #
 
 @runtime_checkable
 class SegmentationModel(Protocol):
     """Structural protocol for any segmentation model.
 
-    Any object that exposes ``predict``, ``num_classes`` and
-    ``model_name`` satisfies this protocol without explicit inheritance.
+    Any object that exposes ``predict``, ``num_classes``,
+    ``model_name``, and ``output_is_logits`` satisfies this protocol
+    without explicit inheritance.
 
     Attributes
     ----------
@@ -41,6 +124,9 @@ class SegmentationModel(Protocol):
         Number of output channels (classes).
     model_name : str
         Human-readable identifier used in reports and plots.
+    output_is_logits : bool
+        ``True`` if ``predict()`` returns raw logits (sigmoid not yet
+        applied), ``False`` if it returns probabilities or binary masks.
     """
 
     @property
@@ -49,6 +135,10 @@ class SegmentationModel(Protocol):
 
     @property
     def model_name(self) -> str:
+        ...
+
+    @property
+    def output_is_logits(self) -> bool:
         ...
 
     def predict(self, images: torch.Tensor) -> torch.Tensor:
@@ -62,16 +152,18 @@ class SegmentationModel(Protocol):
         Returns
         -------
         torch.Tensor
-            Raw logits of shape ``(B, C_out, H, W)`` on the **same**
-            device as ``images``.
+            Dense mask of shape ``(B, C_out, H, W)`` on the **same**
+            device as ``images``.  Whether values are logits or
+            probabilities is indicated by :attr:`output_is_logits`.
         """
         ...
 
 
-# ---------------------------------------------------------------------------
-# Adapters
-# ---------------------------------------------------------------------------
+# ======================================================================== #
+#  Adapters                                                                 #
+# ======================================================================== #
 
+@register_adapter("semantic")
 class SemanticModelAdapter:
     """Wraps a vanilla ``nn.Module`` to satisfy :class:`SegmentationModel`.
 
@@ -127,6 +219,11 @@ class SemanticModelAdapter:
     @property
     def model_name(self) -> str:
         return self._model_name
+
+    @property
+    def output_is_logits(self) -> bool:
+        """Semantic models return raw logits — sigmoid is applied downstream."""
+        return True
 
     # -- Protocol method ----------------------------------------------------
 

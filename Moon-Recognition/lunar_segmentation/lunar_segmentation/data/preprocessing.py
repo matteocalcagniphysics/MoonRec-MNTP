@@ -287,8 +287,79 @@ def compute_class_distribution(
     return pd.DataFrame(records)
     
     
+
+ 
+ 
+def get_train_val_split(index_csv, base_dir=None, val_fraction=0.2,
+                        split_axis='row', filter_stripes=True):
+    """
+    Loads index.csv, optionally filters stripe-artifact tiles, then returns
+    a spatial train/val split with no data leakage.
+ 
+    The split is deterministic — same index.csv always produces the same
+    train_df and val_df — so training, evaluation and Mask R-CNN can all
+    call this function and be guaranteed to use identical splits.
+ 
+    Steps:
+    1. Read index.csv
+    2. (optional) discard stripe-artifact tiles with is_valid_tile
+    3. Spatial split with spatial_train_val_split (no data leakage)
+ 
+    Parameters
+    ----------
+    index_csv      : path to index.csv
+    base_dir       : base directory for resolving relative tile paths.
+                     If None, paths are resolved relative to index.csv.
+    val_fraction   : fraction of tiles for validation (default 0.2)
+    split_axis     : 'row' (horizontal split) or 'col' (vertical split)
+    filter_stripes : if True, discard stripe-artifact tiles before splitting
+ 
+    Returns
+    -------
+    train_df, val_df
+    """
+ 
+    index_csv = Path(index_csv)
+    df = pd.read_csv(index_csv)
+    n_total = len(df)
+ 
+    def _resolve(tile_path):
+        p = Path(tile_path)
+        if p.is_absolute():
+            return p
+        if base_dir is not None:
+            return Path(base_dir) / p
+        return index_csv.parent / p
+ 
+    n_missing = n_rejected = 0
+    if filter_stripes:
+        keep = []
+        for _, r in df.iterrows():
+            p = _resolve(r['tile_path'])
+            if not p.exists():
+                n_missing += 1
+                continue
+            try:
+                img = np.load(p)['image']
+            except Exception:
+                n_missing += 1
+                continue
+            if is_valid_tile(img):
+                keep.append(r)
+            else:
+                n_rejected += 1
+        df = pd.DataFrame(keep).reset_index(drop=True)
+ 
+    train_df, val_df = spatial_train_val_split(
+        df, val_fraction=val_fraction, split_axis=split_axis
+    )
+    logger.info(
+        f"get_train_val_split: {n_total} indicizzate | {n_missing} mancanti | "
+        f"{n_rejected} scartate (strisce) | {len(train_df)} train | {len(val_df)} val"
+    )
+    return train_df, val_df
     
-    
+
 # =============================================================================
 # OPTIONAL BULK PREPROCESSING SCRIPT (COMMENTED OUT FOR SAFETY)
 # To execute this pipeline, uncomment the block below and run: python preprocessing.py

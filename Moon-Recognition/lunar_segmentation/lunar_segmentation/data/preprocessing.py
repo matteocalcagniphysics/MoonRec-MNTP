@@ -176,10 +176,6 @@ def save_tiles_for_aoi(aoi_name: str, bounds, raster_path: Path, labels: dict,
     return pd.DataFrame(records)
 
 
-# ---------------------------------------------------------------------------
-# Added functions — tile QA, spatial split, class distribution
-# ---------------------------------------------------------------------------
-
 def is_valid_tile(image: np.ndarray, stripe_threshold: float = 2.0) -> bool:
     """
     Returns False if the tile has horizontal stripe artifacts.
@@ -358,65 +354,3 @@ def get_train_val_split(index_csv, base_dir=None, val_fraction=0.2,
         f"{n_rejected} scartate (strisce) | {len(train_df)} train | {len(val_df)} val"
     )
     return train_df, val_df
-    
-
-# =============================================================================
-# OPTIONAL BULK PREPROCESSING SCRIPT (COMMENTED OUT FOR SAFETY)
-# To execute this pipeline, uncomment the block below and run: python preprocessing.py
-# =============================================================================
-# if __name__ == "__main__":
-#     import geopandas as gpd
-#     
-#     # 1. Setup local data paths using Path.home() for portability
-#     BASE_DATA_DIR = Path.home() / 'MoonRec-MNTP' / 'data' / 'MR'
-#     RASTER_PATH = BASE_DATA_DIR / 'lunar_mosaic.tif'
-#     
-#     # Define isolated directory for processed outputs to protect raw data
-#     NEW_PROCESSED_DIR = BASE_DATA_DIR / 'processed_dataset'
-#     TILES_OUTPUT_DIR = NEW_PROCESSED_DIR / 'tiles'
-#     
-#     TILES_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-#     
-#     print("Paths configured:")
-#     print(f" Raw data source: {BASE_DATA_DIR}")
-#     print(f" Processed output target: {NEW_PROCESSED_DIR}\n")
-# 
-#     # 2. Load vector spatial layers (GeoJSON) - Requires geopandas
-#     print("Loading GeoJSON files...")
-#     labels_dict = {}
-#     
-#     geojson_files = {
-#         'impact_crater': BASE_DATA_DIR / 'craters.geojson',
-#         'wrinkle_ridge': BASE_DATA_DIR / 'ridges.geojson',
-#         # Add additional class layers here if required
-#     }
-#     
-#     for class_name, file_path in geojson_files.items():
-#         if file_path.exists():
-#             labels_dict[class_name] = gpd.read_file(file_path)
-#             print(f" Loaded {class_name} ({len(labels_dict[class_name])} features)")
-#         else:
-#             print(f" Warning: {file_path} not found. Skipping class '{class_name}'.")
-#     
-#     # 3. Execute processing pipeline
-#     print("\nExecuting bulk preprocessing...")
-#     
-#     if not RASTER_PATH.exists():
-#         print(f" Error: Lunar mosaic TIF not found at {RASTER_PATH}")
-#     else:
-#         index_df = save_tiles_for_aoi(
-#             aoi_name="marius_hills",
-#             bounds=(0, 0, 10000, 10000),
-#             raster_path=RASTER_PATH,
-#             labels=labels_dict,
-#             processed_dir=TILES_OUTPUT_DIR
-#         )
-#         
-#         # Save generated dataset index to output directory
-#         csv_final_path = NEW_PROCESSED_DIR / "index.csv"
-#         index_df.to_csv(csv_final_path, index=False)
-#         
-#         print(f"\nPreprocessing finished.")
-#         print(f" Tiles generated in: {TILES_OUTPUT_DIR}")
-#         print(f" Index saved to: {csv_final_path}")
-#         print(" Verify 'processed_dataset/' is added to .gitignore before pushing.")

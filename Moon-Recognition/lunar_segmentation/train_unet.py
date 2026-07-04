@@ -1,11 +1,11 @@
 import os
 import yaml
 import torch
+import argparse
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 # Import modules from the package
 # We assume the script is run from Moon-Recognition/lunar_segmentation/
@@ -16,51 +16,91 @@ from lunar_segmentation.models.unet import SmallUNet
 from lunar_segmentation.data.datasets import MoonTileDataset
 from lunar_segmentation.training.trainer import Trainer, BCEDiceLoss
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train SmallUNet on lunar tiles")
+    parser.add_argument(
+        "--train-csv", type=str, required=True,
+        help="Path to the CSV file for training (must have a 'tile_path' column)"
+    )
+    parser.add_argument(
+        "--val-csv", type=str, required=True,
+        help="Path to the CSV file for validation (must have a 'tile_path' column)"
+    )
+    parser.add_argument(
+        "--config", type=str, default="configs/unet_config.yaml",
+        help="Path to the YAML config file (default: configs/unet_config.yaml)"
+    )
+    parser.add_argument(
+        "--output-dir", type=str, default="outputs",
+        help="Directory where the best model checkpoint will be saved"
+    )
+    parser.add_argument(
+        "--num-workers", type=int, default=2,
+        help="Number of DataLoader workers (default: 2 — keep low when sharing CPU with GPU training)"
+    )
+    return parser.parse_args()
+
+
+def load_csv(csv_path: str) -> pd.DataFrame:
+    """Load a CSV and validate that it contains the required 'tile_path' column."""
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(f"CSV file not found: {path.resolve()}")
+    df = pd.read_csv(path)
+    if 'tile_path' not in df.columns:
+        raise ValueError(
+            f"CSV '{path}' must contain a 'tile_path' column. "
+            f"Found columns: {list(df.columns)}"
+        )
+    missing = df['tile_path'].apply(lambda p: not Path(p).exists())
+    if missing.any():
+        n = missing.sum()
+        print(f"  [WARNING] {n}/{len(df)} tile paths in '{path.name}' do not exist on disk.")
+    return df
+
+
 def main():
+    args = parse_args()
+
     # 1. Load configuration
-    config_path = Path("configs/unet_config.yaml")
+    config_path = Path(args.config)
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    print(f"--- Training Configuration Loaded from {config_path} ---")
-    
-    # 2. Prepare Data Index
-    # Resolve path relative to this script's directory, or fall back to specified paths
-    script_dir = Path(__file__).resolve().parent
-    data_root = script_dir.parent.parent / "data" / "MR" / "data" / "processed" / "tiles" / "marius_hills"
-    
-    if not data_root.exists():
-        data_root = Path(r"C:\Users\Nicola Lavarda\Jupyter\LCP_moon\data\MR\data\processed\tiles\marius_hills")
-    if not data_root.exists():
-        data_root = Path("data/processed/tiles/marius_hills")
-    
-    print(f"Scanning tiles in: {data_root.resolve()}")
-    tile_paths = list(data_root.glob("*.npz"))
-    if not tile_paths:
-        print(f"Error: No .npz tiles found in: {data_root.resolve()}")
-        return
+    print(f"Training config: {config_path}")
 
-    df = pd.DataFrame({'tile_path': [str(p) for p in tile_paths]})
-    print(f"Found {len(df)} tiles.")
+    # 2. Load train and validation DataFrames from CSV
+    print(f"\nTrain CSV: {args.train_csv}")
+    train_df = load_csv(args.train_csv)
+    print(f"  {len(train_df)} training tiles")
 
-    # 3. Split Dataset (90% train, 10% val)
-    full_dataset = MoonTileDataset(df, augment=config.get('augment', True))
-    train_size = int(0.9 * len(full_dataset))
-    val_size = len(full_dataset) - train_size
-    train_dataset, val_dataset = random_split(
-        full_dataset, [train_size, val_size], 
-        generator=torch.Generator().manual_seed(config.get('seed', 42))
+    print(f"Val CSV: {args.val_csv}")
+    val_df = load_csv(args.val_csv)
+    print(f"  {len(val_df)} validation tiles")
+
+    # 3. Build Datasets and DataLoaders
+    train_dataset = MoonTileDataset(train_df, augment=config.get('augment', True))
+    val_dataset   = MoonTileDataset(val_df,   augment=False)  # no augmentation on val
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=config['batch_size'],
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
     )
-    
-    # Disable augmentation for validation
-    val_dataset.dataset.augment = False 
-
-    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=0)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=config['batch_size'],
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
 
     # 4. Initialize Model, Optimizer, Loss
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    print(f"\nUsing device: {device}")
 
     model = SmallUNet(
         in_channels=config['in_channels'],
@@ -68,32 +108,44 @@ def main():
         base_width=config.get('base_width', 32),
         depth=config.get('depth', 4),
         bottleneck_dropout=config.get('bottleneck_dropout', 0.3),
-        decoder_dropout=config.get('decoder_dropout', 0.1)
+        decoder_dropout=config.get('decoder_dropout', 0.1),
     )
 
     optimizer = torch.optim.AdamW(
-        model.parameters(), 
-        lr=float(config['lr']), 
-        weight_decay=float(config.get('weight_decay', 0.01))
+        model.parameters(),
+        lr=float(config['lr']),
+        weight_decay=float(config.get('weight_decay', 0.01)),
     )
-    
+
+    # Optional: cosine annealing scheduler (from config)
+    scheduler = None
+    if config.get('scheduler') == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=config.get('T_max', config['epochs']),
+            eta_min=float(config.get('eta_min', 1e-6)),
+        )
+
     criterion = BCEDiceLoss()
     trainer = Trainer(model, optimizer, criterion, device=device)
 
     # 5. Training Loop
     epochs = config['epochs']
+    patience = config.get('early_stopping_patience', epochs)
     best_val_loss = float('inf')
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
+    epochs_no_improve = 0
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     save_path = output_dir / "unet_best.pth"
 
-    print(f"\nStarting Training for {epochs} epochs...")
-    
+    print(f"\nStarting Training for {epochs} epochs (early stopping patience={patience})...\n")
+
     for epoch in range(epochs):
-        # Training phase with tqdm
+        # training
         model.train()
         train_loss = 0.0
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} [Train]")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1:02d}/{epochs} [Train]", leave=False)
         for x, y in pbar:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
@@ -103,10 +155,10 @@ def main():
             optimizer.step()
             train_loss += loss.item()
             pbar.set_postfix({'loss': f"{loss.item():.4f}"})
-        
+
         avg_train_loss = train_loss / len(train_loader)
 
-        # Validation phase
+        # validation
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -115,24 +167,44 @@ def main():
                 logits = model(x)
                 loss = criterion(logits, y)
                 val_loss += loss.item()
-        
-        avg_val_loss = val_loss / len(val_loader)
-        
-        print(f"Epoch {epoch+1:02d} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
 
-        # Save Best Model
+        avg_val_loss = val_loss / len(val_loader)
+
+        # LR step (after validation)
+        current_lr = optimizer.param_groups[0]['lr']
+        if scheduler is not None:
+            scheduler.step()
+
+        print(
+            f"Epoch {epoch+1:02d}/{epochs} | "
+            f"Train Loss: {avg_train_loss:.4f} | "
+            f"Val Loss: {avg_val_loss:.4f} | "
+            f"LR: {current_lr:.2e}"
+        )
+
+        # save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
+            epochs_no_improve = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'config': config,
-                'val_loss': best_val_loss
+                'val_loss': best_val_loss,
+                'train_csv': args.train_csv,
+                'val_csv': args.val_csv,
             }, save_path)
-            print(f"--> Saved best model to {save_path}")
+            print(f"  saved to {save_path} (val_loss={best_val_loss:.4f})")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                print(f"\nEarly stopping triggered after {patience} epochs without improvement.")
+                break
 
-    print("\nTraining Complete!")
+    print(f"\nTraining Complete! Best val loss: {best_val_loss:.4f}")
+
 
 if __name__ == "__main__":
     main()
+

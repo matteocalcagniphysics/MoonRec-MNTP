@@ -82,18 +82,18 @@ def load_model(model_config: dict, device: torch.device) -> object:
 # ======================================================================== #
 
 def save_eval_result(result: EvaluationResult, path: Path) -> None:
-    """Persist an EvaluationResult to a compressed .npz file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path,
-        model_name=np.array(result.model_name),
-        class_names=np.array(result.class_names),
+        model_name=result.model_name,
+        class_names=result.class_names,
         per_sample_iou=result.per_sample_iou,
         per_sample_dice=result.per_sample_dice,
         per_sample_precision=result.per_sample_precision,
         per_sample_recall=result.per_sample_recall,
         per_sample_f1=result.per_sample_f1,
     )
-    print(f"  [cache] EvaluationResult saved → {path}")
+    print(f"  [cache] EvaluationResult saved -> {path}")
 
 
 def load_eval_result(path: Path) -> EvaluationResult:
@@ -138,7 +138,7 @@ def save_sweep_accumulators(
         },
         path,
     )
-    print(f"  [cache] Sweep accumulators saved → {path}")
+    print(f"  [cache] Sweep accumulators saved -> {path}")
 
 
 def load_sweep_accumulators(path: Path):
@@ -264,6 +264,8 @@ def main():
     parser.add_argument("--device",      type=str,   default=None)
     parser.add_argument("--force", action="store_true",
                         help="Ignore existing caches and rerun from scratch")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Limit evaluation to a random subset of N tiles")
     args = parser.parse_args()
 
     # 1. Load config
@@ -311,6 +313,8 @@ def main():
     print(f"Output dir:  {report_dir.resolve()}")
     print(f"Cache dir:   {cache_dir.resolve()}")
     print(f"Force rerun: {args.force}")
+    if args.limit is not None:
+        print(f"Limit:       {args.limit} random tiles")
     print("="*60)
 
     # 3. Load dataset
@@ -320,6 +324,11 @@ def main():
         return
 
     df      = pd.DataFrame({"tile_path": [str(p) for p in tile_paths]})
+    if args.limit is not None:
+        limit_n = min(args.limit, len(df))
+        df = df.sample(n=limit_n, random_state=42).reset_index(drop=True)
+        print(f"Randomly selected {limit_n} tiles out of {len(tile_paths)} for quick evaluation.")
+
     dataset = MoonTileDataset(df, augment=False)
     loader  = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     print(f"Loaded {len(df)} evaluation tiles ({len(loader)} batches).")

@@ -71,7 +71,7 @@ def _reduce(
         Scalar or ``(C,)`` tensor.
     """
     if reduction == "mean":
-        return per_class.mean()
+        return per_class.nanmean()
     return per_class  # "none" and "per_class" keep full shape
 
 
@@ -152,7 +152,12 @@ def iou(
         IoU scores.
     """
     cc = confusion_components(pred, target, from_logits=from_logits, threshold=threshold)
-    per_class = (cc["tp"] + eps) / (cc["tp"] + cc["fp"] + cc["fn"] + eps)
+    valid_mask = (cc["tp"] + cc["fp"] + cc["fn"]) > 0
+    per_class = torch.where(
+        valid_mask,
+        (cc["tp"] + eps) / (cc["tp"] + cc["fp"] + cc["fn"] + eps),
+        torch.tensor(float('nan'), device=pred.device)
+    )
     return _reduce(per_class, reduction)
 
 
@@ -188,7 +193,12 @@ def dice_coefficient(
         Dice scores.
     """
     cc = confusion_components(pred, target, from_logits=from_logits, threshold=threshold)
-    per_class = (2.0 * cc["tp"] + eps) / (2.0 * cc["tp"] + cc["fp"] + cc["fn"] + eps)
+    valid_mask = (cc["tp"] + cc["fp"] + cc["fn"]) > 0
+    per_class = torch.where(
+        valid_mask,
+        (2.0 * cc["tp"] + eps) / (2.0 * cc["tp"] + cc["fp"] + cc["fn"] + eps),
+        torch.tensor(float('nan'), device=pred.device)
+    )
     return _reduce(per_class, reduction)
 
 
@@ -214,7 +224,12 @@ def precision(
         Precision scores.
     """
     cc = confusion_components(pred, target, from_logits=from_logits, threshold=threshold)
-    per_class = (cc["tp"] + eps) / (cc["tp"] + cc["fp"] + eps)
+    valid_mask = (cc["tp"] + cc["fp"] + cc["fn"]) > 0
+    per_class = torch.where(
+        valid_mask,
+        (cc["tp"] + eps) / (cc["tp"] + cc["fp"] + eps),
+        torch.tensor(float('nan'), device=pred.device)
+    )
     return _reduce(per_class, reduction)
 
 
@@ -240,7 +255,12 @@ def recall(
         Recall scores.
     """
     cc = confusion_components(pred, target, from_logits=from_logits, threshold=threshold)
-    per_class = (cc["tp"] + eps) / (cc["tp"] + cc["fn"] + eps)
+    valid_mask = (cc["tp"] + cc["fp"] + cc["fn"]) > 0
+    per_class = torch.where(
+        valid_mask,
+        (cc["tp"] + eps) / (cc["tp"] + cc["fn"] + eps),
+        torch.tensor(float('nan'), device=pred.device)
+    )
     return _reduce(per_class, reduction)
 
 
@@ -404,12 +424,13 @@ def compute_all_metrics_vectorized(
     cc = confusion_components_vectorized(pred, target, from_logits=from_logits, threshold=threshold)
 
     tp, fp, fn = cc["tp"], cc["fp"], cc["fn"]
+    valid_mask = (tp + fp + fn) > 0
 
-    iou_val = (tp + eps) / (tp + fp + fn + eps)
-    dice_val = (2.0 * tp + eps) / (2.0 * tp + fp + fn + eps)
-    prec_val = (tp + eps) / (tp + fp + eps)
-    rec_val = (tp + eps) / (tp + fn + eps)
-    f1_val = (2.0 * prec_val * rec_val + eps) / (prec_val + rec_val + eps)
+    iou_val = torch.where(valid_mask, (tp + eps) / (tp + fp + fn + eps), torch.tensor(float('nan'), device=pred.device))
+    dice_val = torch.where(valid_mask, (2.0 * tp + eps) / (2.0 * tp + fp + fn + eps), torch.tensor(float('nan'), device=pred.device))
+    prec_val = torch.where(valid_mask, (tp + eps) / (tp + fp + eps), torch.tensor(float('nan'), device=pred.device))
+    rec_val = torch.where(valid_mask, (tp + eps) / (tp + fn + eps), torch.tensor(float('nan'), device=pred.device))
+    f1_val = torch.where(valid_mask, (2.0 * prec_val * rec_val + eps) / (prec_val + rec_val + eps), torch.tensor(float('nan'), device=pred.device))
 
     return {
         "iou": iou_val,

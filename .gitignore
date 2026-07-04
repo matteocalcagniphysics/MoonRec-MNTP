@@ -12,3 +12,5 @@ CLAUDE.md
 data/
 */notebooks/catboost_info
 .vscode/
+graphify-out/
+Moon-Recognition/lunar_segmentation/outputs/

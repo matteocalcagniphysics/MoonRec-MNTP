@@ -93,7 +93,18 @@ class MaskRCNN_Trainer:
             
             # Global mAP computation after processing all batches, then transform results to a DataFrame for logging
             mAP_dict = self.metric.compute()
-            metrics_clean = {k: v.item() for k, v in mAP_dict.items()}
+
+            # We flatten the metrics in case they are tensors with one 
+            # element per class rather than scalars (e.g. map_per_class).
+            metrics_clean = {}
+            for k, v in mAP_dict.items():
+                t = v.cpu()
+                if t.numel() == 1:
+                    metrics_clean[k] = t.item()
+                else:
+                    for i, val in enumerate(t.tolist()):
+                        metrics_clean[f"{k}_{i}"] = val
+
             metrics_df = pd.Series(metrics_clean).to_frame(name='value')
             
             logger.info("Evaluation Metrics:")

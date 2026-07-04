@@ -17,6 +17,7 @@ from lunar_segmentation.data.datasets import MoonTileDataset
 from lunar_segmentation.data.preprocessing import CLASS_NAMES
 from lunar_segmentation.evaluation.protocols import create_adapter
 import lunar_segmentation.evaluation.mask_rcnn_adapter  # noqa: F401  (register "instance" adapter)
+import lunar_segmentation.evaluation.panoptic_adapter  # noqa: F401  (register "panoptic" adapter)
 from lunar_segmentation.evaluation.comparison import (
     EvaluationResult,
     evaluate_model,

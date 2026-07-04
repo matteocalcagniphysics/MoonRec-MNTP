@@ -27,7 +27,7 @@ models:
 
   - name: "MaskRCNN-Best"
     type: "instance"
-    checkpoint_path: "outputs/mask_rcnn_best.pth"
+    checkpoint_path: "outputs/mask_rcnn_final.pth"
     class: "lunar_segmentation.models.mask_rcnn.MaskRCNN"
     args:
       num_classes: 8      # 7 lunar classes + 1 background
@@ -35,6 +35,19 @@ models:
     # Extra arguments forwarded to the InstanceModelAdapter
     adapter_args:
       score_threshold: 0.80
+      mask_threshold: 0.5
+
+  - name: "Panoptic-Best"
+    type: "panoptic"
+    checkpoint_path: "outputs/panoptic_final.pth"
+    class: "lunar_segmentation.evaluation.panoptic_adapter.PanopticModelWrapper"
+    args:
+      name: "resnet18"
+      num_classes: 8
+      pretrained: false
+    adapter_args:
+      eval_mode: "fused"
+      score_threshold: 0.70
       mask_threshold: 0.5
 
 # ---------------------------------------------------------

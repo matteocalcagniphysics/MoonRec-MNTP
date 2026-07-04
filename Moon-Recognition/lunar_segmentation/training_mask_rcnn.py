@@ -28,8 +28,8 @@ VAL_CSV           = BASE_DIR / 'tiles/val.csv'     # produced by run_preprocess.
 MODEL_WEIGHTS_DIR = BASE_DIR / 'weights'           # folder to save checkpoints
 
 BATCH_SIZE  = 8
-NUM_EPOCHS  = 3
-LR          = 1e-4
+NUM_EPOCHS  = 5
+LR          = 3e-4
 NUM_WORKERS = 15
 DEVICE      = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -87,6 +87,9 @@ model.to(DEVICE)
 
 params    = [p for p in model.parameters() if p.requires_grad]
 optimizer = torch.optim.Adam(params, lr=LR)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=NUM_EPOCHS, eta_min=1e-6
+)
 trainer   = MaskRCNN_Trainer(model, optimizer, threshold=0.5, device=DEVICE)
 
 MODEL_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,9 +97,11 @@ MODEL_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
 # Training Loop
 logger.info(f"Starting training for {NUM_EPOCHS} epochs ...")
 start_time = time.time()
+best_map   = 0.0
 
 for epoch in range(1, NUM_EPOCHS + 1):
-    logger.info(f"--- Epoch {epoch}/{NUM_EPOCHS} ---")
+    current_lr = optimizer.param_groups[0]['lr']
+    logger.info(f"--- Epoch {epoch}/{NUM_EPOCHS}  (lr={current_lr:.2e}) ---")
 
     # Train
     train_loss = trainer.train_one_epoch(train_loader)
@@ -107,10 +112,20 @@ for epoch in range(1, NUM_EPOCHS + 1):
     map_val = metrics_df.loc['map', 'value'] if 'map' in metrics_df.index else float('nan')
     logger.info(f"[Epoch {epoch}] Val mAP: {map_val:.4f}")
 
-    # Save checkpoint
+    # Decay learning rate
+    scheduler.step()
+
+    # Save periodic checkpoint
     ckpt_path = MODEL_WEIGHTS_DIR / f'mask_rcnn_epoch_{epoch:02d}.pth'
     torch.save(model.state_dict(), ckpt_path)
     logger.info(f"Checkpoint saved: {ckpt_path}")
+
+    # Save best checkpoint
+    if map_val > best_map:
+        best_map = map_val
+        best_path = MODEL_WEIGHTS_DIR / 'mask_rcnn_best.pth'
+        torch.save(model.state_dict(), best_path)
+        logger.info(f"New best mAP: {best_map:.4f} — best checkpoint saved: {best_path}")
 
 # Save the final trained model weights
 total_time = str(datetime.timedelta(seconds=int(time.time() - start_time)))

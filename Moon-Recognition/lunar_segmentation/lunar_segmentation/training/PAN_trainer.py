@@ -1,0 +1,92 @@
+import sys
+from pathlib import Path
+import torch
+import pandas as pd
+from torch.utils.data import DataLoader, random_split
+import torch.optim as optim
+
+# Import torchmetrics for the instance branch evaluation
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, panoptic_collate_fn
+import lunar_segmentation.training.trainer as trainer
+from lunar_segmentation.models.PAN4_factory import build_models
+from lunar_segmentation.models.PAN3_fpn import PanopticFPN
+
+BASEPATH = '/mnt_volume/MoonRec-MNTP/data/MR/'
+MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'
+
+
+# Load the dataset 
+train_index_df = pd.read_csv("Moon-Recognition/lunar_segmentation/train_index.csv")
+val_index_df = pd.read_csv("Moon-Recognition/lunar_segmentation/val_index.csv")
+
+train_index_df['tile_path'] = train_index_df['tile_path'].apply(lambda x: BASEPATH + x)
+val_index_df['tile_path'] = val_index_df['tile_path'].apply(lambda x: BASEPATH + x)
+
+# Initialize Dataset 
+train_dataset = MoonTileTestDataset_RCNN(index_df=train_index_df, augment=False, for_panoptic=True)
+val_dataset = MoonTileTestDataset_RCNN(index_df=val_index_df, augment=False, for_panoptic=True)
+
+# Loaders
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=panoptic_collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, collate_fn=panoptic_collate_fn)
+
+# Define the building blocks of the panoptic architecture
+backbone, semantic_branch, instance_branch = build_models(name='resnet18', num_classes=8, pretrained=True)
+
+# Define the panoptic model
+panoptic_model = PanopticFPN(backbone=backbone, semantic_branch=semantic_branch, instance_branch=instance_branch)
+
+# Train the model
+NEPOCHS = 20
+optimizer = optim.Adam(panoptic_model.parameters(), lr=1e-4)
+
+# Semantic Criterion 
+criterion = trainer.PanopticBCEDiceLoss()
+
+# Instance Metric
+map_metric = MeanAveragePrecision()
+
+# trainer
+trainer_instance = trainer.PanopticTrainer(
+    model=panoptic_model, 
+    optimizer=optimizer, 
+    criterion=criterion, 
+    metric=map_metric,
+    threshold=0.5, 
+    device='cuda' if torch.cuda.is_available() else 'cpu'
+)
+
+
+losses = []
+metrics = []
+
+for epoch in range(NEPOCHS):
+    print(f"Starting Epoch {epoch + 1}/{NEPOCHS}...")
+    
+    # Train
+    epoch_loss = trainer_instance.train_one_epoch(train_loader)
+    losses.append(epoch_loss)
+    print(f"Training Loss: {epoch_loss:.4f}")
+    
+    # Evaluate
+    epoch_metrics = trainer_instance.evaluate(val_loader, criterion=criterion)
+    metrics.append(epoch_metrics)
+
+    MODEL_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = MODEL_WEIGHTS_DIR / f'panoptic_epoch_{epoch+1}.pth'
+    torch.save(panoptic_model.state_dict(), save_path)
+    print(f"Weights saved to {save_path}")
+
+
+# Save final weights at the end of the training
+final_save_path = MODEL_WEIGHTS_DIR / 'panoptic_final.pth'
+torch.save(panoptic_model.state_dict(), final_save_path)
+print(f"Final weights saved to {final_save_path}")
+
+print("\nFinal Training Losses:", losses)

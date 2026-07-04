@@ -47,9 +47,10 @@ class MoonTileTestDataset_RCNN(Dataset):
     The image tensor will be in the shape (C, H, W) and will be normalized to [0, 1].
     """
 
-    def __init__(self, index_df: pd.DataFrame, augment: bool = False):
+    def __init__(self, index_df: pd.DataFrame, augment: bool = False, for_panoptic: bool = False):
         self.index_df = index_df.reset_index(drop=True)
         self.augment = augment
+        self.for_panoptic = for_panoptic # Checks if the dataset is used for the panoptic architecture 
 
     def __len__(self):
         return len(self.index_df)
@@ -83,6 +84,15 @@ class MoonTileTestDataset_RCNN(Dataset):
         # Augementation (if needed)
         if self.augment:
             image, mask = self._augment(image, mask)
+
+        # If I will use a panoptic architecture, I need to return the semantic target as well
+        if self.for_panoptic:
+            # Collapse the [C, H, W] mask into a single [H, W] map of class IDs
+            # Class 0 is reserved for background. Foreground classes are 1 to C.
+            background_mask = (mask.sum(axis=0) == 0)
+            semantic_map = np.argmax(mask, axis=0) + 1
+            semantic_map[background_mask] = 0
+            semantic_target = torch.as_tensor(semantic_map, dtype=torch.long)
         
         # Geometry estraction for Mask R-CNN
         boxes_coord = []
@@ -143,7 +153,7 @@ class MoonTileTestDataset_RCNN(Dataset):
         image_id_tensor = torch.tensor([idx])
 
         # Create the target dictionary for the R-CNN
-        target = {
+        instance_target = {
             "boxes": boxes_tensor,
             "labels": labels_tensor,
             "masks": masks_tensor,
@@ -155,8 +165,12 @@ class MoonTileTestDataset_RCNN(Dataset):
         # Cast image to tensor
         image_tensor = torch.as_tensor(image, dtype=torch.float32)
 
-        return image_tensor, target
-    
+        # Returns depending on the network architecture
+        if self.for_panoptic:
+            return image_tensor, semantic_target, instance_target
+        else:
+            return image_tensor, instance_target
+
 def collate_fn(batch):
     """
     Custom collate function to handle batches of images and targets for Mask R-CNN.
@@ -167,3 +181,22 @@ def collate_fn(batch):
         A tuple of two lists: (list of image tensors, list of target dictionaries).
     """
     return tuple(zip(*batch))
+
+def panoptic_collate_fn(batch):
+    """
+    Collates samples for a Panoptic FPN network.
+    
+    Args:
+        batch: A list of tuples coming from your dataset:
+               [(image_1, semantic_target_1, instance_target_1),
+                (image_2, semantic_target_2, instance_target_2), ...]
+    """
+    # 1. Unpack the tuples into three distinct groups based on position
+    images, semantic_targets, instance_targets = zip(*batch)
+    
+    # 2. Return them in the exact format the models require:
+    return (
+        list(images),                     # List of [C, H, W] tensors -> converted to ImageList inside the model
+        torch.stack(semantic_targets),    # Stacked into a single unified tensor of shape [B, H, W]
+        list(instance_targets)            # List of dictionaries containing variable-sized box/mask tensors
+    )

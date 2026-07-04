@@ -22,14 +22,15 @@ MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'
 
 
 # Load the dataset 
-index_df = pd.read_csv(BASEPATH + 'tiles/index.csv')
-index_df['tile_path'] = index_df['tile_path'].apply(lambda x: BASEPATH + x)
+train_index_df = pd.read_csv("Moon-Recognition/lunar_segmentation/train_index.csv")
+val_index_df = pd.read_csv("Moon-Recognition/lunar_segmentation/val_index.csv")
+
+train_index_df['tile_path'] = train_index_df['tile_path'].apply(lambda x: BASEPATH + x)
+val_index_df['tile_path'] = val_index_df['tile_path'].apply(lambda x: BASEPATH + x)
 
 # Initialize Dataset 
-dataset = MoonTileTestDataset_RCNN(index_df=index_df, augment=False, for_panoptic=True)
-
-train_dataset, val_dataset = random_split(dataset, 
-                                          [int(0.8 * len(dataset)), len(dataset) - int(0.8 * len(dataset))])
+train_dataset = MoonTileTestDataset_RCNN(index_df=train_index_df, augment=False, for_panoptic=True)
+val_dataset = MoonTileTestDataset_RCNN(index_df=val_index_df, augment=False, for_panoptic=True)
 
 # Loaders
 train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=panoptic_collate_fn)

@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, '/LCP/MoonRec-MNTP/Moon-Recognition/lunar_segmentation')
 from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, collate_fn
 from lunar_segmentation.models.mask_rcnn import MaskRCNN
-from lunar_segmentation.training.trainer_mask_rcnn import MaskRCNN_Trainer
+from lunar_segmentation.training.trainer import MaskRCNN_Trainer
 
 # Logging setup
 logging.basicConfig(

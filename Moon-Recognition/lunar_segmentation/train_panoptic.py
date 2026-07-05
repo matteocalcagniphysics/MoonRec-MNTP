@@ -8,14 +8,13 @@ import torch.optim as optim
 # Import torchmetrics for the instance branch evaluation
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, panoptic_collate_fn
 import lunar_segmentation.training.trainer as trainer
 from lunar_segmentation.models.PAN4_factory import build_models
 from lunar_segmentation.models.PAN3_fpn import PanopticFPN
+
 
 BASEPATH = '/mnt_volume/MoonRec-MNTP/data/MR/'
 MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'

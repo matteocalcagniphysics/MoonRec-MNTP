@@ -126,19 +126,22 @@ class Trainer:
         return pd.concat(metrics_list).groupby('class').mean()
 
 class MaskRCNN_Trainer:
-    def __init__(self, model, optimizer, threshold=0.5, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, model, optimizer, threshold=0.5, device='cuda' if torch.cuda.is_available() else 'cpu',
+                 grad_clip_norm: float = 1.0):
         """
         Initialize trainer.
         Args:
             model: PyTorch model
-            optimizer: Optimizer istance
+            optimizer: Optimizer instance
             threshold: Confidence threshold for predictions
             device: Device string (GPU/CPU, autodetected)
+            grad_clip_norm: Max norm for gradient clipping (0 = disabled)
         """
         self.model = model
         self.optimizer = optimizer
         self.threshold = threshold
         self.device = device
+        self.grad_clip_norm = grad_clip_norm
         self.model.to(device)
         self.metric = MeanAveragePrecision().to(self.device)
 
@@ -169,6 +172,10 @@ class MaskRCNN_Trainer:
             total_loss = torch.stack(list(loss_dict.values())).sum()   # Retrieve the total loss
             total_loss.backward()  # Backprop
 
+            # Clip gradients to prevent exploding-gradient instability
+            if self.grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
+
             self.optimizer.step()
 
             # Save the loss value for logging and update the progress bar
@@ -191,7 +198,7 @@ class MaskRCNN_Trainer:
         self.model.eval()
 
         with torch.no_grad():
-            for images, targets in loader:
+            for images, targets in tqdm(loader, desc="Validation Batch"):
                 # Moving images and targets to the GPU and getting predictions
                 images = list(image.to(self.device) for image in images)
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
@@ -210,7 +217,18 @@ class MaskRCNN_Trainer:
             
             # Global mAP computation after processing all batches, then transform results to a DataFrame for logging
             mAP_dict = self.metric.compute()
-            metrics_clean = {k: v.item() for k, v in mAP_dict.items()}
+
+            # We flatten the metrics in case they are tensors with one 
+            # element per class rather than scalars (e.g. map_per_class).
+            metrics_clean = {}
+            for k, v in mAP_dict.items():
+                t = v.cpu()
+                if t.numel() == 1:
+                    metrics_clean[k] = t.item()
+                else:
+                    for i, val in enumerate(t.tolist()):
+                        metrics_clean[f"{k}_{i}"] = val
+
             metrics_df = pd.Series(metrics_clean).to_frame(name='value')
             
             logger.info("Evaluation Metrics:")

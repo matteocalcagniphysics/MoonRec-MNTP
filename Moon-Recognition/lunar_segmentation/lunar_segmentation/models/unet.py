@@ -41,14 +41,18 @@ class Up(nn.Module):
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        diff_y = x2.size()[2] - x1.size()[2]
-        diff_x = x2.size()[3] - x1.size()[3]
+        diff_y = x2.size()[2] - x1.size()[2]  # Computes the difference in height between the two feature maps
+        diff_x = x2.size()[3] - x1.size()[3]  # Computes the difference in width between the two feature maps
+
+        # Apply symmetric padding to x1 to match the size of x2
         x1 = nn.functional.pad(
             x1,
             [diff_x // 2, diff_x - diff_x // 2, diff_y // 2, diff_y - diff_y // 2],
         )
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
+
+        # Concatenate the upsampled feature map (x1) with the corresponding feature map from the downsampling path (x2)
+        x = torch.cat([x2, x1], dim=1)  # Tot channels = channels of x2 + channels of x1 = in_ch
+        return self.conv(x)  # output channels = out_ch
 
 
 class OutConv(nn.Module):

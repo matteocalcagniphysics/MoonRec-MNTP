@@ -201,19 +201,22 @@ def bootstrap_confidence_interval(
         ``(mean, ci_lower, ci_upper)``.
     """
     rng = np.random.default_rng(seed)
-    n = len(values)
+    
+    # Filter out NaN values (samples where the class was absent and unpredicted)
+    valid_values = values[~np.isnan(values)]
+    n = len(valid_values)
     if n == 0:
-        return 0.0, 0.0, 0.0
+        return np.nan, np.nan, np.nan
 
     # Draw all resampled indices at once: shape (n_resamples, n)
     indices = rng.integers(0, n, size=(n_resamples, n))
-    resampled_values = values[indices] # shape (n_resamples, n)
+    resampled_values = valid_values[indices] # shape (n_resamples, n)
     means = resampled_values.mean(axis=1) # shape (n_resamples,)
 
     alpha = 1.0 - confidence
     lo = float(np.percentile(means, 100 * alpha / 2))
     hi = float(np.percentile(means, 100 * (1 - alpha / 2)))
-    return float(np.mean(values)), lo, hi
+    return float(np.mean(valid_values)), lo, hi
 
 
 # ======================================================================== #
@@ -309,7 +312,15 @@ def significance_test(
 
     rows: list[dict[str, object]] = []
     for c, cname in enumerate(result_a.class_names):
-        diff = arr_a[:, c] - arr_b[:, c]
+        a_vals = arr_a[:, c]
+        b_vals = arr_b[:, c]
+        
+        # Filter out NaN pairs
+        valid = ~(np.isnan(a_vals) | np.isnan(b_vals))
+        a_valid = a_vals[valid]
+        b_valid = b_vals[valid]
+        
+        diff = a_valid - b_valid
         # Wilcoxon requires non-zero differences
         nonzero = diff[diff != 0]
         if len(nonzero) < 10:
@@ -325,7 +336,7 @@ def significance_test(
             })
             continue
 
-        stat, p_val = wilcoxon(arr_a[:, c], arr_b[:, c])
+        stat, p_val = wilcoxon(a_valid, b_valid)
         rows.append({
             "class": cname,
             "statistic": float(stat),

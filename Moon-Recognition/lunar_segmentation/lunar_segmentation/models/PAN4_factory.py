@@ -51,12 +51,6 @@ def build_models(name: str = 'resnet18',
                     in_channels: int = 3) -> nn.Module:
     """Create an FPN model with a ResNet backbone.
 
-    If `in_channels > 3`, uses the fusion technique described in the paper,
-    *FuseNet*, by Hazirbas et al.
-    (https://vision.in.tum.de/_media/spezial/bib/hazirbasma2016fusenet.pdf)
-    that adds a parallel resnet backbone for the new channels. All the
-    pretrained weights are retained.
-
     Args:
         name (str, optional): Name of the resnet backbone. Only those available
             in torchvision are supported. Defaults to 'resnet18'.
@@ -100,8 +94,8 @@ def build_models(name: str = 'resnet18',
         out_channels=num_classes)
     
     Semantic_branch = nn.Sequential(
-        Semantic_head,
-        Interpolate(size=out_size)    
+        Semantic_head,  #output of the Semantic head has size (8, 64, 64)
+        Interpolate(size=out_size)  # I change the size of the output to the original input size (8, 256, 256)
     )
 
     Instance_branch = CustomMaskRCNNHeads(num_classes=num_classes)

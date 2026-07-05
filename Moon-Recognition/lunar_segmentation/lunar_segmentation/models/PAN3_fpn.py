@@ -246,14 +246,14 @@ class CustomMaskRCNNHeads(nn.Module):
     def __init__(self, in_channels=256, num_classes=8):
         super().__init__()
         
-        # 1. Region Proposal Network (RPN)
-        # Reverted to 5 levels because your backbone outputs 5 feature maps!
+        # Region Proposal Network (RPN)
+        # 5 levels because the backbone outputs 5 feature maps. These are proposals, 
+        # but do not have any problem with the number of channels, since the RPN will handle it internally.
         anchor_generator = AnchorGenerator(
             sizes=((32,), (64,), (128,), (256,), (512,)),
             aspect_ratios=((0.5, 1.0, 2.0),) * 5
         )
 
-        # FIX 1: Use Torchvision's RPNHead instead of nn.Sequential
         # It automatically handles the list of feature maps and calculates the regression layers
         rpn_head = RPNHead(
             in_channels, 
@@ -269,8 +269,7 @@ class CustomMaskRCNNHeads(nn.Module):
             post_nms_top_n={'training': 2000, 'testing': 1000} 
         )
         
-        # 2. Multi-Scale RoI Poolers
-        # FIX 2: Added '4' to the featmap_names so they don't ignore the 5th map
+        # Multi-Scale RoI Poolers
         self.box_roi_pool = MultiScaleRoIAlign(
             featmap_names=['0', '1', '2', '3', '4'], 
             output_size=7,
@@ -283,13 +282,13 @@ class CustomMaskRCNNHeads(nn.Module):
             sampling_ratio=2
         )
         
-        # 3. Box Head Components
+        # Box Head Components
         # TwoMLPHead flattens the 7x7 features and passes them through two Linear layers
         # defines to which class this box belongs and how to adjust the box coordinates
         box_head = TwoMLPHead(in_channels * 7 * 7, representation_size=1024)
         box_predictor = FastRCNNPredictor(in_channels=1024, num_classes=num_classes)
         
-        # 4. Mask Head Components
+        # Mask Head Components
         # A sequence of 4 convolutional layers to extract spatial patterns
         # This understand what pixels belong to the object in the box and which don't, 
         # thus creating a binary mask for each class
@@ -302,7 +301,7 @@ class CustomMaskRCNNHeads(nn.Module):
         # Upsamples 14x14 features to 28x28 and predicts masks per class
         mask_predictor = MaskRCNNPredictor(in_channels=in_channels, dim_reduced=256, num_classes=num_classes)
         
-        # 5. Combine into RoIHeads
+        # Combine into RoIHeads
         # This standard torchvision class manages the coordination between box and mask predictions
         self.roi_heads = RoIHeads(
             box_roi_pool=self.box_roi_pool,
@@ -343,34 +342,32 @@ class PanopticFPN(nn.Module):
         self.semantic_branch = semantic_branch 
         self.instance_branch = instance_branch  
         
-        # FIX: The missing bridge! This will standardize the ResNet features into 256 channels
         self.fpn = FeaturePyramidNetwork(
             in_channels_list=in_channels_list,
             out_channels=out_channels
         )
 
     def forward(self, images_list, targets=None):
-        # 1. Format images
+        # Format images
         image_sizes = [img.shape[-2:] for img in images_list]
         batched_image_tensor = torch.stack(images_list)
         image_list_obj = ImageList(batched_image_tensor, image_sizes)
         
-        # 2. Extract RAW features from ResNet (List of 64, 64, 128, 256, 512 channels)
+        # Extract RAW features from ResNet (List of 64, 64, 128, 256, 512 channels)
         fp_features_list = self.backbone(batched_image_tensor)
         
-        # 3. The Semantic Branch accepts the RAW list directly
+        # The Semantic Branch accepts the RAW list directly
         semantic_output = self.semantic_branch(fp_features_list)
         
-        # 4. Convert the RAW list to an OrderedDict for the FPN
+        # Convert the RAW list to an OrderedDict for the FPN
         fp_features_dict = OrderedDict([
             (str(i), feat) for i, feat in enumerate(fp_features_list)
         ])
         
-        # 5. FIX: Pass the raw dictionary through the new FPN bridge! 
         # This returns a NEW dictionary where every tensor perfectly has 256 channels.
         fpn_features_dict = self.fpn(fp_features_dict)
         
-        # 6. Pass the STANDARDIZED FPN dictionary to your Instance Head!
+        # Pass the STANDARDIZED FPN dictionary to the Instance Head!
         detections, rpn_losses, roi_losses = self.instance_branch(fpn_features_dict, image_list_obj, targets)
         
         return semantic_output, detections, rpn_losses, roi_losses

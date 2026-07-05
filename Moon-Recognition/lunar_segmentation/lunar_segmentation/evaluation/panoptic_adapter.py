@@ -134,16 +134,24 @@ class PanopticModelAdapter:
         semantic_output, detections, _, _ = self._model(image_list)
         
         if self._eval_mode == "semantic":
-            return semantic_output.to(src_device)
-            
+            out = semantic_output.to(src_device)  # (B, C_model, H, W)
+            if out.shape[1] > self._num_classes:
+                out = out[:, -self._num_classes:]  # drop background channel (index 0)
+            return out
+
         # For 'instance' and 'fused' modes, we assemble the final semantic mask
         semantic_batch = torch.zeros(B, self._num_classes, H, W, dtype=torch.float32, device=src_device)
         
         for b in range(B):
             base_mask = None
             if self._eval_mode == "fused":
-                # Convert logits to probabilities as the base background
-                base_mask = torch.sigmoid(semantic_output[b])
+                # semantic_output[b] may have an extra background channel (e.g. 8 channels
+                # for 7 semantic classes). Strip it so the tensor matches self._num_classes.
+                sem_b = semantic_output[b]  # (C_model, H, W)
+                if sem_b.shape[0] > self._num_classes:
+                    # Assume background is at index 0; keep only the semantic class channels.
+                    sem_b = sem_b[-self._num_classes:]  # last N channels are semantic classes
+                base_mask = torch.sigmoid(sem_b)
                 
             semantic_batch[b] = self._fuse_instances_to_semantic(
                 detections[b], H, W, src_device, base_mask=base_mask

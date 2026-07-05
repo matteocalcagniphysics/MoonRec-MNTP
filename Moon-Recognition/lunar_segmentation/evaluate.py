@@ -259,6 +259,8 @@ def main():
     parser.add_argument("--config", type=str, default="configs/evaluation_config.yaml",
                         help="Path to config file")
     parser.add_argument("--data_root",   type=str,   default=None)
+    parser.add_argument("--index_csv",   type=str,   default=None,
+                        help="Path to a CSV with a 'tile_path' column (overrides config index_csv)")
     parser.add_argument("--batch_size",  type=int,   default=None)
     parser.add_argument("--num_workers", type=int,   default=None)
     parser.add_argument("--threshold",   type=float, default=None)
@@ -319,16 +321,39 @@ def main():
     print("="*60)
 
     # 3. Load dataset
-    tile_paths = list(data_root.glob("*.npz"))
-    if not tile_paths:
-        print(f"Error: No .npz tiles found in: {data_root.resolve()}")
-        return
+    # Priority: CLI --index_csv > config index_csv > glob data_root
+    index_csv_path = args.index_csv or config["data"].get("index_csv", None)
 
-    df      = pd.DataFrame({"tile_path": [str(p) for p in tile_paths]})
+    if index_csv_path:
+        index_csv_path = Path(index_csv_path)
+        if not index_csv_path.exists():
+            print(f"Error: index_csv not found at {index_csv_path.resolve()}")
+            return
+        df = pd.read_csv(index_csv_path)
+        if "tile_path" not in df.columns:
+            print(f"Error: index_csv must have a 'tile_path' column. Found: {list(df.columns)}")
+            return
+        # Resolve paths: if a path is relative or doesn't exist as-is,
+        # reconstruct it from data_root + basename (the CSV stores relative paths).
+        def _resolve_tile(p: str) -> str:
+            p_obj = Path(p)
+            if p_obj.is_absolute() and p_obj.exists():
+                return str(p_obj)
+            return str(data_root / p_obj.name)
+        df["tile_path"] = df["tile_path"].apply(_resolve_tile)
+        print(f"Using split CSV: {index_csv_path.resolve()} ({len(df)} tiles)")
+    else:
+        tile_paths = list(data_root.glob("*.npz"))
+        if not tile_paths:
+            print(f"Error: No .npz tiles found in: {data_root.resolve()}")
+            return
+        df = pd.DataFrame({"tile_path": [str(p) for p in tile_paths]})
+        print(f"No index_csv set — globbing all tiles in data_root ({len(df)} tiles)")
+    
     if args.limit is not None:
         limit_n = min(args.limit, len(df))
         df = df.sample(n=limit_n, random_state=42).reset_index(drop=True)
-        print(f"Randomly selected {limit_n} tiles out of {len(tile_paths)} for quick evaluation.")
+        print(f"Randomly selected {limit_n} tiles out of {len(df)} for quick evaluation.")
 
     dataset = MoonTileDataset(df, augment=False)
     loader  = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)

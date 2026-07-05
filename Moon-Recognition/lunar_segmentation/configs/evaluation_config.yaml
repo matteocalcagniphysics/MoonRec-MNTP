@@ -3,10 +3,13 @@
 # Data settings
 # ---------------------------------------------------------
 data:
-  # Path to validation/evaluation tiles directory
-  data_root: "data/processed/tiles/marius_hills"
+  # Path to tile files (used to resolve relative paths in index_csv)
+  data_root: "/LCP/MoonRec-MNTP/data/MR/data/processed/tiles/marius_hills"
+  # CSV with the validation split — if set, only these tiles are evaluated.
+  # Set to null (or remove) to evaluate all tiles found in data_root.
+  index_csv: "/LCP/MoonRec-MNTP/Moon-Recognition/lunar_segmentation/val_index.csv"
   batch_size: 8
-  num_workers: 4 # dynamic multi-threaded loading
+  num_workers: 15 # dynamic multi-threaded loading
 
 # ---------------------------------------------------------
 # Models to evaluate
@@ -60,7 +63,7 @@ eval_params:
   n_resamples: 1000
 
 # ---------------------------------------------------------
-# Output settings & Plots to generate
+# Output settings &data/MR/panoptic_weights/panoptic_final.pth Plots to generate
 # ---------------------------------------------------------
 outputs:
   report_dir: "outputs/evaluation"

@@ -55,16 +55,16 @@ class ResNetFeatureMapsExtractor(nn.Module):
         # general features. This helps the network in the actual FPN levels
         # It will be then discarded in the Mask R-CNN heads
         stem = nn.Sequential(       
-            model.conv1,
+            model.conv1,    # stride 2
             model.bn1,
             model.relu,
-            model.maxpool
+            model.maxpool   # stride 2
         )
         layers = [
-            model.layer1,
-            model.layer2,
-            model.layer3,
-            model.layer4,
+            model.layer1,   # stride 1 padding 1
+            model.layer2,   # stride 2 padding 0
+            model.layer3,   # stride 2 padding 0
+            model.layer4,   # stride 2 padding 0
         ]
         
         # Checks whether the backbone will be used for Mask RCNN heads or not. 

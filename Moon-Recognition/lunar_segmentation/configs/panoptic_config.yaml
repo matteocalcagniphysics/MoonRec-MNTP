@@ -1,0 +1,20 @@
+# Training configuration for Panoptic FPN — lunar segmentation
+batch_size: 8
+lr: 0.0001
+epochs: 3
+tile_size: 256
+stride: 128
+augment: false
+seed: 42
+
+# Per-class inverse-frequency weights.
+# Background (index 0) always gets weight 1.0 automatically.
+# Indices 1-7 map to the 7 foreground classes in CLASS_NAMES order.
+class_weights:
+  impact_crater:          1.0
+  pit_skylight:          64.7
+  wrinkle_ridge:          5.3
+  lobate_scarp:          58.7
+  irregular_mare_patch: 154.4
+  apollo_site:           90.9
+  candidate_rille:      795.3

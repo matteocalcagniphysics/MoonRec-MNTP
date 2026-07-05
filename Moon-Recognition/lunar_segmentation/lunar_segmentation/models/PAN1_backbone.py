@@ -32,12 +32,16 @@ class SequentialMultiOutput(nn.Sequential):
     """
 
     def forward(self, x: Any) -> tuple:
-        outs = [None] * len(self)
-        last_out = x
-        for i, module in enumerate(self):
+        outs = [None] * len(self)           # In my case the backbone has 5 layers
+        last_out = x                        # Here last out is the actual input 
+
+        # Now I feed the input to layer 0, then its output to layer 1 and so on
+        # At every layer I save the output to the corresponding place in the
+        # previously created list 
+        for i, module in enumerate(self):   
             last_out = module(last_out)
             outs[i] = last_out
-        return tuple(outs)
+        return tuple(outs)                  # At the end I return a tuple
 
 
 #############################################################################
@@ -47,8 +51,10 @@ class SequentialMultiOutput(nn.Sequential):
 class ResNetFeatureMapsExtractor(nn.Module):
     def __init__(self, model: nn.Module, out_mask_rcnn: bool = False):
         super().__init__()
-        # yapf: disable
-        stem = nn.Sequential(
+        # This is the layer 0, which preprocess the input to extract the most 
+        # general features. This helps the network in the actual FPN levels
+        # It will be then discarded in the Mask R-CNN heads
+        stem = nn.Sequential(       
             model.conv1,
             model.bn1,
             model.relu,
@@ -71,14 +77,16 @@ class ResNetFeatureMapsExtractor(nn.Module):
 
     def forward(self, x):
         
-        out = self.m(x)
+        out = self.m(x) # This gives the multi-layer output tuple
         
         # This adds the dictionary output format needed for Mask RCNN heads
         if(self.out_mask_rcnn):
-            correct_out = out[1:] # I don't need the output of the stem for Mask RCNN heads
+            # I don't need the output of the stem for Mask RCNN heads
+            correct_out = out[1:] 
+            # Returns a dictionary {level_index : level output} (For Mask R-CNN heads)
             return {str(i): correct_out[i] for i in range(len(correct_out))}
         else:
-            return out
+            return out # Output for the Semantic branch
 
 
 

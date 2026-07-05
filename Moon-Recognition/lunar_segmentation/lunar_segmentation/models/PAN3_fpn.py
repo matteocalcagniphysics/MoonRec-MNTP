@@ -100,29 +100,41 @@ class SemanticBranch(nn.Sequential):
             num_groups_for_norm (int, optional): Number of groups for group
                 norm layers. Defaults to 32.
         """
+        # in_feats_shapes is a tuple with as many entries as the number of 
+        # layers of my network. 
         if num_upsamples_per_layer is None:
             num_upsamples_per_layer = list(range(len(in_feats_shapes)))
-
+        
+        # It automatically calculates the output Height and width
+        # For me is useless since I give it the correct output size (the same as the
+        # input)
         if out_size is None:
             out_size = in_feats_shapes[0][-2:]
-
+        
+        # This transforms every layer output of the backbone. The number of channels
+        # gets standardized to 256
         in_convs = Parallel([
             nn.Conv2d(s[1], hidden_channels, kernel_size=1)
             for s in in_feats_shapes
         ])
+
+        # Defines the upsamplers instance for the Pyramid coming from the backbone
         upsamplers = self._make_upsamplers(
             in_channels=hidden_channels,
             size=out_size,
             num_upsamples_per_layer=num_upsamples_per_layer,
             num_groups=num_groups_for_norm)
+        
+        # Final output convolution, so that the number of channels corresponds to 
+        # the number of classes (2 since this is a semantic branch)
         out_conv = nn.Conv2d(hidden_channels // 2, out_channels, kernel_size=1)
 
         # yapf: disable
         layers = [
-            in_convs,
-            upsamplers,
-            Sum(),
-            out_conv
+            in_convs,        # Standardize the channel number (256)
+            upsamplers,      # Upsample process (Final channels = 128)
+            Sum(),           # Sums all the feature maps obtained element-wise
+            out_conv         # Final convolution (out channels = num classes = 2)
         ]
         # yapf: enable
         super().__init__(*layers)
@@ -133,6 +145,8 @@ class SemanticBranch(nn.Sequential):
                          size: int,
                          num_upsamples_per_layer: Iterable[int],
                          num_groups: int = 32) -> Parallel:
+        # For every layer it defines the correct upsampler and appends everything
+        # to the list layers
         layers = []
         for num_upsamples in num_upsamples_per_layer:
             upsampler = cls._upsample_feat(
@@ -141,7 +155,9 @@ class SemanticBranch(nn.Sequential):
                 size=size,
                 num_groups=num_groups)
             layers.append(upsampler)
-
+        
+        # This instance applies the list of upsamplers to the tuple of outputs coming
+        # from the backbone, It will give me the final "pyramid" of the semantic branch 
         upsamplers = Parallel(layers)
         return upsamplers
 
@@ -152,12 +168,17 @@ class SemanticBranch(nn.Sequential):
                        size: int,
                        scale_factor: float = 2.,
                        num_groups: int = 32) -> nn.Sequential:
+        # This means that I am upsampling the most generic feature map 
+        # Return a single upsampling block (or step)
         if num_upsamples == 0:
             return cls._make_upsampling_block(
                 in_channels=in_channels,
                 out_channels=in_channels // 2,
-                scale=1,
+                scale=1,        # No scaling needed
                 num_groups=num_groups)
+        # Let's say that num_upsamples = 3. Then the first two blocks do both
+        # the convolution step and the scaling up. In the last one I reached 
+        # the correct size, so I do a last conv step halving the number of channels
         blocks = []
         for _ in range(num_upsamples - 1):
             blocks.append(
@@ -184,22 +205,26 @@ class SemanticBranch(nn.Sequential):
         if out_channels is None:
             out_channels = in_channels
 
-        # conv block that preserves size
+        # conv block that preserves size. It takes the feature map and output a 
+        # new one with the same H x W but different number of channels
         conv_block = [
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.GroupNorm(num_channels=out_channels, num_groups=num_groups),
             nn.ReLU(inplace=True)
         ]
-        if scale == 1:
-            # don't upsample
+        if scale == 1: # This means that I want to keep the size unchanged
             return nn.Sequential(*conv_block)
 
-        if size is None:
+        if size is None: 
+            # If I do not give a fine size (H x W) I scale the one that I have by a 
+            # scale factor
             upsample_layer = Interpolate(scale_factor=scale)
         else:
             upsample_layer = Interpolate(size=size)
+        
+        # Complete upsampling step for a generic layer
+        conv_block.append(upsample_layer) 
 
-        conv_block.append(upsample_layer)
         return nn.Sequential(*conv_block)
 
 

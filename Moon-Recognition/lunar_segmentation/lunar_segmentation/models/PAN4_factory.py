@@ -18,22 +18,28 @@ def _get_shapes(model: nn.Module,
     The model must be an nn.Module whose __call__ method returns all feature
     maps when called with an input.
     """
-    # save state so we can restore laterD
-    state = model.training
+    # Saves the current state
+    # boolean variable, if true -> I was on training mode
+    # Else -> I was in evaluating mode
+    state = model.training 
 
+    # Creates a dummy input to test the output of the model
     model.eval()
     with torch.no_grad():
         x = torch.empty(1, channels, *size)
         feats = model(x)
 
-    # restore state
+    # restore state. If false the model is kept in evaluation mode
     model.train(state)
 
+    # If the output is a normal tensor, I transform it into a list
+    # In my case the output is a tuple
     if isinstance(feats, torch.Tensor):
         feats = [feats]
-
+    
+    # Saves the outputs shape of each FPN level
     feat_shapes = [f.shape for f in feats]
-    return feat_shapes
+    return feat_shapes # (B, C, H, W)
 
 
 

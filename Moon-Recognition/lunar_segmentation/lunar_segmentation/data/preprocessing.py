@@ -174,3 +174,183 @@ def save_tiles_for_aoi(aoi_name: str, bounds, raster_path: Path, labels: dict,
         })
 
     return pd.DataFrame(records)
+
+
+def is_valid_tile(image: np.ndarray, stripe_threshold: float = 2.0) -> bool:
+    """
+    Returns False if the tile has horizontal stripe artifacts.
+
+    Stripes cause high column variance relative to row variance.
+    Threshold 2.0 was calibrated on slide 23 examples:
+      rejected tiles (r00000_c00052/55/60) scored 2.76-4.12,
+      valid tile (r00074_c00170) scored 1.02.
+
+    Parameters
+    ----------
+    image            : (C, H, W) tile image
+    stripe_threshold : col_var / row_var ratio above which tile is rejected
+    """
+    gray = image[0].astype(np.float32)
+    row_var = float(np.var(gray, axis=1).mean())
+    col_var = float(np.var(gray, axis=0).mean())
+    stripe_score = col_var / (row_var + 1e-8)
+    is_valid = stripe_score < stripe_threshold
+    logger.debug(f"stripe_score={stripe_score:.2f} → {'valid' if is_valid else 'rejected'}")
+    return is_valid
+
+
+def spatial_train_val_split(
+    index_df: pd.DataFrame,
+    val_fraction: float = 0.2,
+    split_axis: str = 'row',
+) -> tuple:
+    """
+    Split tiles by geographic position to avoid data leakage.
+
+    A random split leaks information because adjacent tiles share up to 50%
+    of their pixels (stride=128, tile_size=256). Splitting on row or col
+    ensures train and val tiles come from different regions of the mosaic.
+
+    Parameters
+    ----------
+    index_df     : DataFrame with columns row, col, tile_path, ...
+    val_fraction : fraction of tiles for validation (default 0.2)
+    split_axis   : 'row' splits horizontally, 'col' vertically
+
+    Returns
+    -------
+    train_df, val_df
+    """
+    threshold = int(np.quantile(index_df[split_axis].values, 1 - val_fraction))
+    train_df = index_df[index_df[split_axis] < threshold].reset_index(drop=True)
+    val_df   = index_df[index_df[split_axis] >= threshold].reset_index(drop=True)
+    logger.info(
+        f"Spatial split on '{split_axis}' at {threshold}: "
+        f"{len(train_df)} train / {len(val_df)} val tiles"
+    )
+    return train_df, val_df
+
+
+def compute_class_distribution(
+    index_df: pd.DataFrame,
+    tile_dir: Path | None = None,
+) -> pd.DataFrame:
+    """
+    Per-class tile counts and pixel counts across the dataset.
+
+    Used to compute the class_weights in unet_config.yaml:
+    suggested_weight = 100 / freq_percent.
+
+    Parameters
+    ----------
+    index_df : DataFrame from index.csv
+    tile_dir : optional base directory for relative tile paths
+
+    Returns
+    -------
+    DataFrame: class, n_tiles, total_pixels, freq_percent, suggested_weight
+    """
+    counts  = {name: 0 for name in CLASS_NAMES}
+    n_tiles = {name: 0 for name in CLASS_NAMES}
+    total   = 0
+
+    for _, row in index_df.iterrows():
+        path = Path(row['tile_path'])
+        if tile_dir is not None and not path.is_absolute():
+            path = tile_dir / path
+        if not path.exists():
+            continue
+        data = np.load(path)
+        mask = data['mask']
+        total += 1
+        for c, name in enumerate(CLASS_NAMES):
+            if mask[c].sum() > 0:
+                n_tiles[name] += 1
+                counts[name]  += int(mask[c].sum())
+
+    records = []
+    for name in CLASS_NAMES:
+        freq = n_tiles[name] / max(total, 1) * 100
+        records.append({
+            'class':            name,
+            'n_tiles':          n_tiles[name],
+            'total_pixels':     counts[name],
+            'freq_percent':     round(freq, 2),
+            'suggested_weight': round(100.0 / max(freq, 0.01), 1),
+        })
+
+    logger.info(f"Class distribution computed on {total} tiles.")
+    return pd.DataFrame(records)
+    
+    
+
+ 
+ 
+def get_train_val_split(index_csv, base_dir=None, val_fraction=0.2,
+                        split_axis='row', filter_stripes=True):
+    """
+    Loads index.csv, optionally filters stripe-artifact tiles, then returns
+    a spatial train/val split with no data leakage.
+ 
+    The split is deterministic — same index.csv always produces the same
+    train_df and val_df — so training, evaluation and Mask R-CNN can all
+    call this function and be guaranteed to use identical splits.
+ 
+    Steps:
+    1. Read index.csv
+    2. (optional) discard stripe-artifact tiles with is_valid_tile
+    3. Spatial split with spatial_train_val_split (no data leakage)
+ 
+    Parameters
+    ----------
+    index_csv      : path to index.csv
+    base_dir       : base directory for resolving relative tile paths.
+                     If None, paths are resolved relative to index.csv.
+    val_fraction   : fraction of tiles for validation (default 0.2)
+    split_axis     : 'row' (horizontal split) or 'col' (vertical split)
+    filter_stripes : if True, discard stripe-artifact tiles before splitting
+ 
+    Returns
+    -------
+    train_df, val_df
+    """
+ 
+    index_csv = Path(index_csv)
+    df = pd.read_csv(index_csv)
+    n_total = len(df)
+ 
+    def _resolve(tile_path):
+        p = Path(tile_path)
+        if p.is_absolute():
+            return p
+        if base_dir is not None:
+            return Path(base_dir) / p
+        return index_csv.parent / p
+ 
+    n_missing = n_rejected = 0
+    if filter_stripes:
+        keep = []
+        for _, r in df.iterrows():
+            p = _resolve(r['tile_path'])
+            if not p.exists():
+                n_missing += 1
+                continue
+            try:
+                img = np.load(p)['image']
+            except Exception:
+                n_missing += 1
+                continue
+            if is_valid_tile(img):
+                keep.append(r)
+            else:
+                n_rejected += 1
+        df = pd.DataFrame(keep).reset_index(drop=True)
+ 
+    train_df, val_df = spatial_train_val_split(
+        df, val_fraction=val_fraction, split_axis=split_axis
+    )
+    logger.info(
+        f"get_train_val_split: {n_total} indicizzate | {n_missing} mancanti | "
+        f"{n_rejected} scartate (strisce) | {len(train_df)} train | {len(val_df)} val"
+    )
+    return train_df, val_df

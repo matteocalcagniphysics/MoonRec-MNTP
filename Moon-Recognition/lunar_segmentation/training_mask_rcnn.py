@@ -13,7 +13,7 @@ from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, collate_f
 from lunar_segmentation.models.mask_rcnn import MaskRCNN
 from lunar_segmentation.training.trainer_mask_rcnn import MaskRCNN_Trainer
 
-# Exact Configuration from the Professor
+# Configuration of the Paths
 BASE_DIR = Path('/mnt/MoonRec-MNTP/data/MR')
 DATA_INDEX = BASE_DIR / 'tiles/index.csv'          # Training CSV file
 MODEL_WEIGHTS_DIR = BASE_DIR / 'prova'           # Folder to save weights

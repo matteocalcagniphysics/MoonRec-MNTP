@@ -92,17 +92,17 @@ class EvaluationResult:
                     "model": self.model_name,
                     "class": cname,
                     "metric": metric_name,
-                    "mean": float(np.mean(arr[:, c])),
-                    "std": float(np.std(arr[:, c])),
+                    "mean": float(np.nanmean(arr[:, c])),
+                    "std": float(np.nanstd(arr[:, c])),
                 })
         return pd.DataFrame(rows)
 
     @property
     def mean_iou(self) -> float:
-        """Macro-averaged IoU (mean over classes, then samples)."""
+        """Macro-averaged IoU (nanmean over classes and samples — absent classes skipped)."""
         if self.per_sample_iou.size == 0:
             return 0.0
-        return float(np.mean(self.per_sample_iou))
+        return float(np.nanmean(self.per_sample_iou))
 
 
 # ======================================================================== #

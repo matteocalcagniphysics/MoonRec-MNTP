@@ -202,13 +202,13 @@ def bootstrap_confidence_interval(
     """
     rng = np.random.default_rng(seed)
     
-    # Filter out NaN values (samples where the class was absent and unpredicted)
+    # Filter out NaN values
     valid_values = values[~np.isnan(values)]
     n = len(valid_values)
     if n == 0:
         return np.nan, np.nan, np.nan
 
-    # Draw all resampled indices at once: shape (n_resamples, n)
+    # Generate resample indices
     indices = rng.integers(0, n, size=(n_resamples, n))
     resampled_values = valid_values[indices] # shape (n_resamples, n)
     means = resampled_values.mean(axis=1) # shape (n_resamples,)

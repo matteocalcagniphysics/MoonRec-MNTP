@@ -1,15 +1,8 @@
-"""Model protocols for evaluation framework.
+"""Model protocols and adapter registry for the evaluation framework.
 
-Defines structural contracts (PEP 544 Protocols) that any segmentation
-model must satisfy to be evaluated by this framework.  Using Protocols
-instead of abstract base classes means collaborators do **not** need to
-inherit from anything — their models just need the right method signatures
-(structural subtyping / typed duck-typing).
-
-Additionally provides an **Adapter Registry** so that new model types
-(semantic, instance, panoptic …) can be plugged in via a simple
-``@register_adapter("type_name")`` decorator, without touching the
-evaluation orchestrator.
+Defines structural contracts (PEP 544 Protocols) that models must satisfy,
+allowing evaluation of various model types (semantic, instance, panoptic)
+via registered adapters.
 
 Typical usage
 -------------

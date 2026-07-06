@@ -352,8 +352,7 @@ def main():
         if "tile_path" not in df.columns:
             print(f"Error: index_csv must have a 'tile_path' column. Found: {list(df.columns)}")
             return
-        # Resolve paths: if a path is relative or doesn't exist as-is,
-        # reconstruct it from data_root + basename (the CSV stores relative paths).
+        # Reconstruct absolute paths for tiles from data_root.
         def _resolve_tile(p: str) -> str:
             p_obj = Path(p)
             if p_obj.is_absolute() and p_obj.exists():
@@ -398,7 +397,7 @@ def main():
         sweep_cached = (not args.force) and sweep_cache.exists()
 
         if eval_cached and sweep_cached:
-            # ── Both already on disk — load and skip inference entirely ──
+            # Load cached results
             print(f"\n[cache] Loading EvaluationResult + sweep for {model_name}...")
             res = load_eval_result(result_cache)
             eval_results[model_name] = res
@@ -409,7 +408,7 @@ def main():
             print(f"  Sweep accumulators loaded from cache.")
 
         else:
-            # ── Need to run inference ──────────────────────────────────
+            # Run evaluation
             try:
                 model        = load_model(m_cfg, device)
                 model_type   = m_cfg.get("type", "semantic")
@@ -420,7 +419,7 @@ def main():
                 )
                 adapter_cache[model_name] = adapter
 
-                # Respect the adapter's output format
+                # Check if adapter outputs logits
                 effective_from_logits = adapter.output_is_logits
 
                 need_sweep = plot_ops.get("threshold_sensitivity", True) and not sweep_cached

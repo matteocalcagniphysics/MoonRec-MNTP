@@ -206,11 +206,11 @@ class InstanceModelAdapter:
         masks = output["masks"][keep]    # (N_keep, 1, H, W) float [0, 1]
         labels = output["labels"][keep]  # (N_keep,) int64, 1-indexed
 
-        # 2. Binarize soft masks → squeeze the singleton channel dim
+        # 2. Binarize masks
         # masks shape: (N, 1, H, W) → (N, H, W)
         binary = (masks.squeeze(1) > self._mask_threshold).float()
 
-        # Handle possible spatial size mismatch (R-CNN may resize masks)
+        # Resize if dimensions do not match
         if binary.shape[-2:] != (H, W):
             binary = torch.nn.functional.interpolate(
                 binary.unsqueeze(1),             # (N, 1, h, w)

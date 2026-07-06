@@ -22,8 +22,14 @@ from lunar_segmentation.models.PAN3_fpn import PanopticFPN
 CONFIG_PATH = ROOT_DIR / 'configs' / 'panoptic_config.yaml'
 with open(CONFIG_PATH, 'r') as f:
     cfg = yaml.safe_load(f)
+# Find repo root dynamically
+repo_root = ROOT_DIR
+for parent in [ROOT_DIR] + list(ROOT_DIR.parents):
+    if (parent / ".git").exists() or (parent / "Moon-Recognition").exists():
+        repo_root = parent
+        break
 
-BASEPATH = '/LCP/MoonRec-MNTP/data/MR/'
+BASEPATH = str((repo_root / 'data' / 'MR').resolve()) + '/'
 MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -40,8 +46,8 @@ if CLASS_WEIGHTS:
     print(f"Class weights: {CLASS_WEIGHTS}")
 
 # ── Load the dataset ────────────────────────────────────────────────────────
-train_index_df = pd.read_csv("Moon-Recognition/lunar_segmentation/train_index.csv")
-val_index_df   = pd.read_csv("Moon-Recognition/lunar_segmentation/val_index.csv")
+train_index_df = pd.read_csv(ROOT_DIR / "train_index.csv")
+val_index_df   = pd.read_csv(ROOT_DIR / "val_index.csv")
 
 train_index_df['tile_path'] = train_index_df['tile_path'].apply(lambda x: BASEPATH + x)
 val_index_df['tile_path']   = val_index_df['tile_path'].apply(lambda x: BASEPATH + x)

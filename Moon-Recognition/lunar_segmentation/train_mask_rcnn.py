@@ -8,7 +8,14 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 
 # Import custom modules for the Mask R-CNN
-sys.path.insert(0, '/LCP/MoonRec-MNTP/Moon-Recognition/lunar_segmentation')
+script_dir = Path(__file__).resolve().parent
+repo_root = script_dir
+for parent in [script_dir] + list(script_dir.parents):
+    if (parent / ".git").exists() or (parent / "Moon-Recognition").exists():
+        repo_root = parent
+        break
+
+sys.path.insert(0, str((repo_root / "Moon-Recognition" / "lunar_segmentation").resolve()))
 from lunar_segmentation.data.datasets import MoonTileTestDataset_RCNN, collate_fn
 from lunar_segmentation.models.mask_rcnn import MaskRCNN
 from lunar_segmentation.training.trainer import MaskRCNN_Trainer
@@ -22,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger('training_mask_rcnn')
 
 # Configuration of the Paths and Hyperparameters
-BASE_DIR          = Path('/LCP/MoonRec-MNTP/data/MR')
+BASE_DIR          = repo_root / 'data' / 'MR'
 TRAIN_CSV         = BASE_DIR / 'tiles/train.csv'   # produced by run_preprocess.py
 VAL_CSV           = BASE_DIR / 'tiles/val.csv'     # produced by run_preprocess.py
 MODEL_WEIGHTS_DIR = BASE_DIR / 'weights'           # folder to save checkpoints

@@ -14,7 +14,8 @@ data/
 */notebooks/catboost_info
 .vscode/
 graphify-out/
-Moon-Recognition/lunar_segmentation/outputs/# Re-include evaluation results (report + plots). Cache and checkpoints remain ignored.
+# Re-include evaluation results (report + plots). Cache and checkpoints remain ignored.
+Moon-Recognition/lunar_segmentation/outputs/
 !Moon-Recognition/lunar_segmentation/outputs/evaluation/
 !Moon-Recognition/lunar_segmentation/outputs/evaluation/evaluation_report.md
 !Moon-Recognition/lunar_segmentation/outputs/evaluation/plots/

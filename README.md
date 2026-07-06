@@ -39,7 +39,9 @@ The repository contains the following main areas:
 - models: implementations of segmentation and panoptic architectures;
 - training: scripts and trainers for model optimization;
 - inference: prediction pipelines for applying trained models;
-- visualization: tools for generating plots and overlays;
+- evaluation: statistical significance testing, model comparison, and quantitative metrics;
+- visualization: tools for generating plots, confidence heatmaps, and overlays;
+- utils: helper functions and general repository utilities;
 - notebooks: exploratory experiments and demonstrations.
 
 The implementation is organized around modular components so that each part of the pipeline can be developed and tested independently.

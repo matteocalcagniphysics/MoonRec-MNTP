@@ -70,11 +70,7 @@ def _make_combined_mask(mask: np.ndarray) -> np.ndarray:
 def generate_pretty_image(gray_img: np.ndarray, prob_cube: np.ndarray,
                           class_names: list, output_path: Path,
                           threshold: float = 0.5):
-    """
-    Generates a grid of images showing the original WAC crop and overlays of
-    each class.  Uses a more aggressive relative thresholding to ensure
-    features are visible even if the model is under-confident.
-    """
+    """Generates a grid of images showing the original WAC crop and class overlays."""
     gray_img = _ensure_2d_gray(gray_img)
     n = len(class_names)
     ncols = 3
@@ -433,11 +429,7 @@ def plot_threshold_baseline(image: np.ndarray, mask: np.ndarray,
                             threshold: float = 0.3,
                             class_names: list | None = None,
                             output_path: Path | None = None):
-    """
-    Compare a simple dark-pixel threshold against the real impact_crater mask.
-    Useful as a sanity check before training — if the baseline IoU is already
-    decent, the images are informative; if it is near zero, the mask encodes
-    something the brightness alone cannot predict.
+    """Compare a dark-pixel threshold baseline against the ground-truth crater mask as a sanity check.
 
     Parameters
     ----------
@@ -491,9 +483,7 @@ def plot_augmentation_check(image: np.ndarray, mask: np.ndarray,
                             aug_image: np.ndarray, aug_mask: np.ndarray,
                             channel: int = 0, class_names: list | None = None,
                             output_path: Path | None = None):
-    """
-    Visual sanity check that the same geometric transform was applied to both
-    image and mask (as required by the slides).
+    """Verify that the same geometric transformation is applied to both the image and the mask.
 
     Parameters
     ----------

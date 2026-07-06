@@ -22,21 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 class PanopticModelWrapper(PanopticFPN):
-    """A wrapper for PanopticFPN to facilitate instantiation from YAML config.
-    
-    The standard PanopticFPN requires instantiated modules (backbone, semantic_branch,
-    instance_branch) which is difficult to pass from a simple YAML config. 
-    This wrapper takes base parameters and builds the components internally.
-    """
+    """A wrapper for PanopticFPN that builds its backbone and branches internally from configuration parameters."""
     def __init__(self, name: str = 'resnet18', num_classes: int = 8, pretrained: bool = False):
-        # Build the three branches using the factory
+        # Instantiate branches using factory
         backbone, semantic_branch, instance_branch = build_models(
             name=name, 
             num_classes=num_classes, 
             pretrained=pretrained
         )
         
-        # Initialize the parent PanopticFPN with the instantiated branches
+        # Initialize parent with instantiated branches
         super().__init__(
             backbone=backbone, 
             semantic_branch=semantic_branch, 
@@ -207,12 +202,10 @@ class PanopticModelAdapter:
         for i in range(binary.shape[0]):
             ch = labels[i].item() - 1  # 1-indexed to 0-indexed
             if 0 <= ch < self._num_classes:
-                # Where the instance mask is 1, push the probability for that class to 1.0
+                # Set predicted instance channel probability to 1.0
                 semantic[ch] = torch.maximum(semantic[ch], binary[i])
                 
-                # In a strict panoptic fusion, we might also want to zero-out other classes 
-                # at these pixels to resolve overlap, but torch.maximum is robust and matches 
-                # the semantic evaluator's multi-label expectation.
+                # Merge overlapping classes per multi-label expectation.
             else:
                 logger.warning(
                     f"Instance label {labels[i].item()} out of range [1, {self._num_classes}]; skipping."

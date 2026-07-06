@@ -28,7 +28,7 @@ VAL_CSV           = BASE_DIR / 'tiles/val.csv'     # produced by run_preprocess.
 MODEL_WEIGHTS_DIR = BASE_DIR / 'weights'           # folder to save checkpoints
 
 BATCH_SIZE  = 8
-NUM_EPOCHS  = 5
+NUM_EPOCHS  = 3
 LR          = 3e-4
 NUM_WORKERS = 15
 DEVICE      = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -90,7 +90,16 @@ optimizer = torch.optim.Adam(params, lr=LR)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=NUM_EPOCHS, eta_min=1e-6
 )
-trainer   = MaskRCNN_Trainer(model, optimizer, threshold=0.5, device=DEVICE)
+CLASS_WEIGHTS = {
+    'impact_crater':        1.0,
+    'pit_skylight':        64.69999694824219,
+    'wrinkle_ridge':        5.300000190734863,
+    'lobate_scarp':        58.70000076293945,
+    'irregular_mare_patch': 154.39999389648438,
+    'apollo_site':         90.9000015258789,
+    'candidate_rille':     795.0,
+}
+trainer   = MaskRCNN_Trainer(model, optimizer, threshold=0.5, device=DEVICE, class_weights=CLASS_WEIGHTS)
 
 MODEL_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -383,21 +383,21 @@ class PanopticFPN(nn.Module):
         batched_image_tensor = torch.stack(images_list)
         image_list_obj = ImageList(batched_image_tensor, image_sizes)
         
-        # Extract RAW features from ResNet (List of 64, 64, 128, 256, 512 channels)
+        # Extract raw features from ResNet (List of 64, 64, 128, 256, 512 channels)
         fp_features_list = self.backbone(batched_image_tensor)
         
         # The Semantic Branch accepts the RAW list directly
         semantic_output = self.semantic_branch(fp_features_list)
         
-        # Convert the RAW list to an OrderedDict for the FPN
+        # Convert the raw list to an OrderedDict for the FPN
         fp_features_dict = OrderedDict([
             (str(i), feat) for i, feat in enumerate(fp_features_list)
         ])
         
-        # This returns a NEW dictionary where every tensor perfectly has 256 channels.
+        # This returns a new dictionary where every tensor perfectly has 256 channels.
         fpn_features_dict = self.fpn(fp_features_dict)
         
-        # Pass the STANDARDIZED FPN dictionary to the Instance Head!
+        # Pass the standardized FPN dictionary to the Instance Head
         detections, rpn_losses, roi_losses = self.instance_branch(fpn_features_dict, image_list_obj, targets)
         
         return semantic_output, detections, rpn_losses, roi_losses

@@ -52,7 +52,7 @@ val_index_df   = pd.read_csv(ROOT_DIR / "val_index.csv")
 train_index_df['tile_path'] = train_index_df['tile_path'].apply(lambda x: BASEPATH + x)
 val_index_df['tile_path']   = val_index_df['tile_path'].apply(lambda x: BASEPATH + x)
 
-train_dataset = MoonTileTestDataset_RCNN(index_df=train_index_df, augment=False, for_panoptic=True)
+train_dataset = MoonTileTestDataset_RCNN(index_df=train_index_df, augment=True, for_panoptic=True)
 val_dataset   = MoonTileTestDataset_RCNN(index_df=val_index_df,   augment=False, for_panoptic=True)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  collate_fn=panoptic_collate_fn)

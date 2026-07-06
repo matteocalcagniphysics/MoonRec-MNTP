@@ -19,6 +19,7 @@ torch
 torchvision
 torchmetrics
 albumentations
+pycocotools
 
 # Evaluation
 scipy

@@ -24,37 +24,55 @@ class BCEDiceLoss(nn.Module):
     def forward(self, logits, targets):
         return self.bce(logits, targets) + dice_loss(logits, targets)
 
-def panoptic_dice_loss(probs: torch.Tensor, targets_one_hot: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+def panoptic_dice_loss(probs: torch.Tensor, targets_one_hot: torch.Tensor, eps: float = 1e-6, weights=None) -> torch.Tensor:
     # probs and targets are both [B, C, H, W]
-    num = 2 * (probs * targets_one_hot).sum(dim=(0, 2, 3))
-    den = probs.sum(dim=(0, 2, 3)) + targets_one_hot.sum(dim=(0, 2, 3))
-    dice = 1 - (num + eps) / (den + eps)
+    num = 2 * (probs * targets_one_hot).sum(dim=(0, 2, 3))   # shape [C]
+    den = probs.sum(dim=(0, 2, 3)) + targets_one_hot.sum(dim=(0, 2, 3))  # shape [C]
+    dice = 1 - (num + eps) / (den + eps)                       # shape [C]
+    if weights is not None:
+        dice = dice * weights
     return dice.mean()
 
+
 class PanopticBCEDiceLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, class_weights=None):
+        """
+        Args:
+            class_weights: optional 1-D tensor of length num_classes (including
+                           background at index 0). Applied to both BCE and Dice.
+        """
         super().__init__()
-        self.bce = nn.BCEWithLogitsLoss()
+        # Store as a buffer so it moves to the right device automatically
+        if class_weights is not None:
+            self.register_buffer('class_weights', class_weights.float())
+        else:
+            self.class_weights = None
 
     def forward(self, logits, targets):
         """
-        logits: [B, C, H, W] float predictions
-        targets: [B, H, W] long integer class indices
+        logits:  [B, C, H, W] float predictions (raw, before sigmoid)
+        targets: [B, H, W]    long integer class indices (0 = background)
         """
         num_classes = logits.shape[1]
         
         # 1. Convert [B, H, W] index map to [B, C, H, W] one-hot float map
-        # one_hot outputs [B, H, W, C], so we permute to get [B, C, H, W]
         targets_one_hot = F.one_hot(targets, num_classes=num_classes).permute(0, 3, 1, 2).float()
         
-        # 2. Calculate BCE
-        loss_bce = self.bce(logits, targets_one_hot)
+        # 2. Weighted BCE
+        if self.class_weights is not None:
+            # pos_weight for BCEWithLogitsLoss must be broadcastable to [B, C, H, W]
+            # We reshape to [1, C, 1, 1]
+            pw = self.class_weights.view(1, -1, 1, 1)
+            loss_bce = F.binary_cross_entropy_with_logits(logits, targets_one_hot, pos_weight=pw)
+        else:
+            loss_bce = F.binary_cross_entropy_with_logits(logits, targets_one_hot)
         
-        # 3. Calculate Dice (using sigmoid probabilities to match BCE logic)
+        # 3. Weighted Dice
         probs = torch.sigmoid(logits)
-        loss_dice = panoptic_dice_loss(probs, targets_one_hot)
+        loss_dice = panoptic_dice_loss(probs, targets_one_hot, weights=self.class_weights)
         
         return loss_bce + loss_dice
+
 
 def multilabel_metrics(logits: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5, eps: float = 1e-6):
     from ..data.preprocessing import CLASS_NAMES
@@ -241,16 +259,20 @@ class MaskRCNN_Trainer:
             return metrics_df
 
 class PanopticTrainer:
-    def __init__(self, model, optimizer, criterion, metric, threshold=0.5, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, model, optimizer, criterion, metric, threshold=0.5,
+                 device='cuda' if torch.cuda.is_available() else 'cpu',
+                 class_weights=None):
         """Initialize trainer.
 
         Args:
             model: PyTorch model
             optimizer: Optimizer instance
-            criterion: Loss function
+            criterion: Loss function (PanopticBCEDiceLoss or similar)
             metric: Evaluation metric
             threshold: Confidence threshold for instance predictions
             device: Device string ('cuda' or 'cpu', auto-detected)
+            class_weights: dict or tensor of per-class weights; if dict,
+                           maps CLASS_NAMES strings to float values.
         """
         self.model = model
         self.optimizer = optimizer
@@ -259,6 +281,72 @@ class PanopticTrainer:
         self.device = device
         self.model.to(self.device)
         self.metric = MeanAveragePrecision().to(self.device)
+
+        if class_weights is not None:
+            if isinstance(class_weights, dict):
+                from ..data.preprocessing import CLASS_NAMES
+                weights_list = [1.0]  # background weight
+                for name in CLASS_NAMES:
+                    weights_list.append(class_weights.get(name, 1.0))
+                self.class_weights = torch.tensor(weights_list, dtype=torch.float32, device=self.device)
+            elif isinstance(class_weights, (list, tuple)):
+                self.class_weights = torch.tensor(class_weights, dtype=torch.float32, device=self.device)
+            else:
+                self.class_weights = class_weights.to(self.device)
+
+            # Push weights into the criterion (semantic branch)
+            if hasattr(criterion, 'class_weights'):
+                criterion.class_weights = self.class_weights
+
+            # Patch torchvision's instance-branch loss functions
+            import torchvision.models.detection.roi_heads as roi_heads
+            import torch.nn.functional as F
+            from torchvision.models.detection.roi_heads import project_masks_on_boxes
+
+            weights_tensor = self.class_weights
+
+            def weighted_fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
+                labels = torch.cat(labels, dim=0)
+                regression_targets = torch.cat(regression_targets, dim=0)
+                classification_loss = F.cross_entropy(class_logits, labels, weight=weights_tensor)
+                sampled_pos_inds_subset = torch.where(labels > 0)[0]
+                labels_pos = labels[sampled_pos_inds_subset]
+                N, num_classes = class_logits.shape
+                box_regression = box_regression.reshape(N, box_regression.size(-1) // 4, 4)
+                box_loss = F.smooth_l1_loss(
+                    box_regression[sampled_pos_inds_subset, labels_pos],
+                    regression_targets[sampled_pos_inds_subset],
+                    beta=1 / 9,
+                    reduction="sum",
+                )
+                box_loss = box_loss / labels.numel()
+                return classification_loss, box_loss
+
+            def weighted_maskrcnn_loss(mask_logits, proposals, gt_masks, gt_labels, mask_matched_idxs):
+                discretization_size = mask_logits.shape[-1]
+                labels = [gt_label[idxs] for gt_label, idxs in zip(gt_labels, mask_matched_idxs)]
+                mask_targets = [
+                    project_masks_on_boxes(m, p, i, discretization_size)
+                    for m, p, i in zip(gt_masks, proposals, mask_matched_idxs)
+                ]
+                labels = torch.cat(labels, dim=0)
+                mask_targets = torch.cat(mask_targets, dim=0)
+                if mask_targets.numel() == 0:
+                    return mask_logits.sum() * 0
+                unreduced = F.binary_cross_entropy_with_logits(
+                    mask_logits[torch.arange(labels.shape[0], device=labels.device), labels],
+                    mask_targets,
+                    reduction="none",
+                )
+                loss_per_instance = unreduced.mean(dim=(1, 2))
+                inst_weights = weights_tensor[labels]
+                return (loss_per_instance * inst_weights).mean()
+
+            roi_heads.fastrcnn_loss = weighted_fastrcnn_loss
+            roi_heads.maskrcnn_loss = weighted_maskrcnn_loss
+        else:
+            self.class_weights = None
+
 
     def train_one_epoch(self, loader):
         self.model.train()

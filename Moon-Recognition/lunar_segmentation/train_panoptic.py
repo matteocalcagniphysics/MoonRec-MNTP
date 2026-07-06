@@ -18,7 +18,7 @@ import lunar_segmentation.training.trainer as trainer_module
 from lunar_segmentation.models.PAN4_factory import build_models
 from lunar_segmentation.models.PAN3_fpn import PanopticFPN
 
-# ── Load config ────────────────────────────────────────────────────────────
+# Load config 
 CONFIG_PATH = ROOT_DIR / 'configs' / 'panoptic_config.yaml'
 with open(CONFIG_PATH, 'r') as f:
     cfg = yaml.safe_load(f)
@@ -45,7 +45,7 @@ print(f"Config loaded from {CONFIG_PATH}")
 if CLASS_WEIGHTS:
     print(f"Class weights: {CLASS_WEIGHTS}")
 
-# ── Load the dataset ────────────────────────────────────────────────────────
+# Load the dataset 
 train_index_df = pd.read_csv(ROOT_DIR / "train_index.csv")
 val_index_df   = pd.read_csv(ROOT_DIR / "val_index.csv")
 
@@ -58,11 +58,11 @@ val_dataset   = MoonTileTestDataset_RCNN(index_df=val_index_df,   augment=False,
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  collate_fn=panoptic_collate_fn)
 val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, collate_fn=panoptic_collate_fn)
 
-# ── Build model ─────────────────────────────────────────────────────────────
+# Build model
 backbone, semantic_branch, instance_branch = build_models(name='resnet18', num_classes=8, pretrained=True)
 panoptic_model = PanopticFPN(backbone=backbone, semantic_branch=semantic_branch, instance_branch=instance_branch)
 
-# ── Optimizer & loss ─────────────────────────────────────────────────────────
+# Optimizer & loss
 optimizer = optim.Adam(panoptic_model.parameters(), lr=LR)
 
 # Semantic criterion — weights are injected by PanopticTrainer after converting
@@ -72,7 +72,7 @@ criterion = trainer_module.PanopticBCEDiceLoss()
 # Instance metric
 map_metric = MeanAveragePrecision()
 
-# ── Trainer (passes class_weights to both branches) ──────────────────────────
+# Trainer (passes class_weights to both branches)
 trainer_instance = trainer_module.PanopticTrainer(
     model=panoptic_model,
     optimizer=optimizer,
@@ -83,7 +83,7 @@ trainer_instance = trainer_module.PanopticTrainer(
     class_weights=CLASS_WEIGHTS,   # dict loaded from YAML
 )
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# Training loop
 losses  = []
 metrics = []
 
@@ -102,7 +102,7 @@ for epoch in range(NEPOCHS):
     torch.save(panoptic_model.state_dict(), save_path)
     print(f"Weights saved to {save_path}")
 
-# ── Save final weights ────────────────────────────────────────────────────────
+# Save final weights 
 final_save_path = MODEL_WEIGHTS_DIR / 'panoptic_final.pth'
 torch.save(panoptic_model.state_dict(), final_save_path)
 print(f"Final weights saved to {final_save_path}")

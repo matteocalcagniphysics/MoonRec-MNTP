@@ -254,12 +254,17 @@ class CustomMaskRCNNHeads(nn.Module):
             aspect_ratios=((0.5, 1.0, 2.0),) * 5
         )
 
-        # It automatically handles the list of feature maps and calculates the regression layers
+        # This is a small convolutional network that takes the feature maps and outputs 
+        # objectness scores and bounding box deltas for each anchor. Thus, it will tell if each anchor
+        # is likely to contain an object and how to adjust the anchor to better fit the object.
         rpn_head = RPNHead(
             in_channels, 
             anchor_generator.num_anchors_per_location()[0]
         )
 
+        # This puts together the anchor generator and the RPNHead. Then uses the proposals and 
+        # their scores to select the best ones (pre_nms_top_n). Then, it applies Non-Maximum Suppression
+        # (nms_thresh). Finally, it selects the best proposals after NMS (post_nms_top_n).
         self.rpn = RegionProposalNetwork(
             anchor_generator, rpn_head,
             fg_iou_thresh=0.7, bg_iou_thresh=0.3, 
@@ -269,36 +274,44 @@ class CustomMaskRCNNHeads(nn.Module):
             post_nms_top_n={'training': 2000, 'testing': 1000} 
         )
         
-        # Multi-Scale RoI Poolers
+        # The coming proposals are used to extract features from the FPN feature maps.
+        # Every cut is then shrinked into a 7x7 feature map, keeping the number of channels unchaged (256)
+        # The output goes to the TwoMLPHead
         self.box_roi_pool = MultiScaleRoIAlign(
             featmap_names=['0', '1', '2', '3', '4'], 
             output_size=7,
             sampling_ratio=2
         )
         
+        # This uses the new highly precise boxes constructed by the box head and extracts 
+        # features from the FPN feature maps. Every cut is then shrinked into a 14x14 feature map.
+        # as before, the number of channels is kept unchanged (256)
         self.mask_roi_pool = MultiScaleRoIAlign(
             featmap_names=['0', '1', '2', '3', '4'],
             output_size=14,
             sampling_ratio=2
         )
         
-        # Box Head Components
+        
         # TwoMLPHead flattens the 7x7 features and passes them through two Linear layers
-        # defines to which class this box belongs and how to adjust the box coordinates
         box_head = TwoMLPHead(in_channels * 7 * 7, representation_size=1024)
+
+        # defines to which class the cutted feature map belongs and how to adjust the 
+        # corresponing box coordinates
         box_predictor = FastRCNNPredictor(in_channels=1024, num_classes=num_classes)
         
-        # Mask Head Components
-        # A sequence of 4 convolutional layers to extract spatial patterns
-        # This understand what pixels belong to the object in the box and which don't, 
-        # thus creating a binary mask for each class
+        # A sequence of 4 convolutional layers to extract spatial patterns. It basically process 
+        # the extracted feature boxes to facilitate the binary prediction (see below)
         mask_head = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1), nn.ReLU(inplace=True),
         )
+
         # Upsamples 14x14 features to 28x28 and predicts masks per class
+        # This understand what pixels belong to the object in the box and which don't, 
+        # thus creating a binary mask for each class
         mask_predictor = MaskRCNNPredictor(in_channels=in_channels, dim_reduced=256, num_classes=num_classes)
         
         # Combine into RoIHeads
@@ -310,8 +323,8 @@ class CustomMaskRCNNHeads(nn.Module):
             fg_iou_thresh=0.5, bg_iou_thresh=0.5,
             batch_size_per_image=512, positive_fraction=0.25,
             bbox_reg_weights=None,
-            score_thresh=0.05,       # Filters out absolutely terrible predictions early to save compute
-            nms_thresh=0.5,          # IoU threshold for Non-Maximum Suppression (removing duplicate overlapping boxes)
+            score_thresh=0.05,       # Filters out absolutely terrible predictions made by box_predictor (classifies as background)
+            nms_thresh=0.5,          # IoU threshold for Non-Maximum Suppression to the boxes predicted by box_predictor.
             detections_per_img=100,  # Maximum number of final objects it is allowed to output per image
             mask_roi_pool=self.mask_roi_pool,
             mask_head=mask_head,
@@ -326,10 +339,27 @@ class CustomMaskRCNNHeads(nn.Module):
             targets (list[dict]): Ground truth annotations during training
         """
         # Convert dict keys if necessary to match expectations
-        # Pass features through RPN to get candidate bounding boxes (proposals)
+        # outputs:
+        # 1. proposals: list of 2D tensors, each with shape [N, 4] (the boxes)
+        #               N = number of boxes proposed 
+        #               4 = (x, y, width, height) coordinates of the box
+        # 2. rpn_losses: a dictionary with two items:
+        #               loss_objectness: A scalar tensor representing the error in guessing foreground vs background
+        #               loss_rpn_box_reg: A scalar tensor representing the error in predicting the box coordinates     
         proposals, rpn_losses = self.rpn(images, fp_features, targets)
         
-        # Pass features and proposals through the RoI heads to generate detections/losses
+        # outputs:
+        # 1. detections: list of dicts (the length is the batch size), each containing:
+        #               boxes : Tensor of shape [M, 4] with the predicted box. M = number of boxes (objects) detected
+        #               labels: Tensor of shape [M] with the predicted class labels for each box
+        #               scores: Tensor of shape [M] with the confidence scores for each box
+        #               masks : A tensor of shape [M, C, 28, 28]. These are the pixel-level masks.  
+        #                       The values inside are probabilities (between 0 and 1) indicating if a pixel belongs to the object.
+        # 2. roi_losses: a dictionary with two items:
+        #               loss_classifier: Error in guessing the final class labels.
+        #               loss_box_reg   : Error in the second-stage box tweaks.
+        #               loss_mask      : Error in drawing the pixel-perfect masks (calculated using Binary Cross-Entropy on the 28x28 grid).
+
         detections, roi_losses = self.roi_heads(fp_features, proposals, images.image_sizes, targets)
          
         return detections, rpn_losses, roi_losses

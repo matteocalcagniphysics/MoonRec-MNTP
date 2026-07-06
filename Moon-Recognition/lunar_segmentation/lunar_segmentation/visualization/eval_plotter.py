@@ -667,8 +667,9 @@ class SegmentationVisualizer:
             prec_sorted = prec[sort_idx]
             
             # Compute AUC using trapezoidal rule
-            pr_auc = np.trapz(prec_sorted, rec_sorted)
-            
+            trapz_fn = getattr(np, "trapezoid", getattr(np, "trapz", None))
+            pr_auc = trapz_fn(prec_sorted, rec_sorted)
+                        
             ax.plot(rec_sorted, prec_sorted, marker="o", markersize=4,
                     label=f"{label} (AUC: {pr_auc:.3f})", color=colors[c], linewidth=1.5)
 

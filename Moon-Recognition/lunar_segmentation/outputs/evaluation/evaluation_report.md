@@ -22,7 +22,7 @@ Tests the null hypothesis that the metric distribution medians are equal. Signif
 |:---------------------|------------:|--------------:|:------------------|
 | impact_crater        |       77142 |   0           | True              |
 | pit_skylight         |          19 |   0.431641    | False             |
-| wrinkle_ridge        |          15 |   6.36086e-15 | True              |
+| wrinkle_ridge        |          15 |   6.36085e-15 | True              |
 | lobate_scarp         |         nan | nan           | False             |
 | irregular_mare_patch |         nan | nan           | False             |
 | apollo_site          |         nan | nan           | False             |
@@ -46,7 +46,7 @@ Tests the null hypothesis that the metric distribution medians are equal. Signif
 |:---------------------|------------:|--------------:|:------------------|
 | impact_crater        |        4090 |   0           | True              |
 | pit_skylight         |         nan | nan           | False             |
-| wrinkle_ridge        |          15 |   6.36086e-15 | True              |
+| wrinkle_ridge        |          15 |   6.36085e-15 | True              |
 | lobate_scarp         |         nan | nan           | False             |
 | irregular_mare_patch |         nan | nan           | False             |
 | apollo_site          |         nan | nan           | False             |

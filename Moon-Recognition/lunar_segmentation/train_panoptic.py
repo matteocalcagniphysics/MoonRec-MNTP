@@ -33,8 +33,8 @@ BASEPATH = str((repo_root / 'data' / 'MR').resolve()) + '/'
 MODEL_WEIGHTS_DIR = Path(BASEPATH) / 'panoptic_weights'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-BATCH_SIZE = cfg.get('batch_size', 4)
-LR         = cfg.get('lr', 1e-4)
+BATCH_SIZE = cfg.get('batch_size', 8)
+LR         = cfg.get('lr', 3e-4)
 NEPOCHS    = cfg.get('epochs', 20)
 
 # Build the class-weights dict from the YAML (may be None if key is absent)

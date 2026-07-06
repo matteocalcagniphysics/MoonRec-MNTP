@@ -1,0 +1,55 @@
+# Model Evaluation Orchestrator Configuration
+# ---------------------------------------------------------
+# Data settings
+# ---------------------------------------------------------
+data:
+  # Path to tile files (used to resolve relative paths in index_csv)
+  data_root: "data/MR/data/processed/tiles/marius_hills"
+  # CSV with the validation split — if set, only these tiles are evaluated.
+  # Set to null (or remove) to evaluate all tiles found in data_root.
+  index_csv: "Moon-Recognition/lunar_segmentation/val_index.csv"
+  batch_size: 8
+  num_workers: 15 # dynamic multi-threaded loading
+
+# ---------------------------------------------------------
+# Models to evaluate
+# ---------------------------------------------------------
+models:
+  
+  - name: "Panoptic-Best"
+    type: "panoptic"
+    checkpoint_path: "outputs/panoptic_final.pth"
+    class: "lunar_segmentation.evaluation.panoptic_adapter.PanopticModelWrapper"
+    args:
+      name: "resnet18"
+      num_classes: 8
+      pretrained: false
+    adapter_args:
+      eval_mode: "semantic"
+      score_threshold: 0.70
+      mask_threshold: 0.5
+
+# ---------------------------------------------------------
+# Evaluation Parameters
+# ---------------------------------------------------------
+eval_params:
+  threshold: 0.75
+  from_logits: true
+  bootstrap_confidence: 0.95
+  n_resamples: 1000
+
+# ---------------------------------------------------------
+# Output settings &data/MR/panoptic_weights/panoptic_final.pth Plots to generate
+# ---------------------------------------------------------
+outputs:
+  report_dir: "outputs/panoptic_semantic"
+  plots:
+    prediction_panel: true
+    class_comparison: true
+    metrics_summary: true
+    model_comparison: true
+    threshold_sensitivity: true
+    pr_curve: true
+    metric_distributions: true
+    confidence_maps: true
+    max_panel_samples: 5

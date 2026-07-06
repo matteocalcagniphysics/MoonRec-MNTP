@@ -623,6 +623,237 @@ class SegmentationVisualizer:
         return fig, axes
 
     # ------------------------------------------------------------------ #
+    #  Precision-Recall Curve                                               #
+    # ------------------------------------------------------------------ #
+
+    def plot_pr_curve(
+        self,
+        sweep_result: dict[str, Any],
+        title: str | None = None,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """Plot Precision-Recall curve for each class.
+
+        Parameters
+        ----------
+        sweep_result : dict
+            Output of threshold sweep. Must contain 'precision', 'recall' and 'thresholds'.
+        title : str, optional
+            Figure title.
+
+        Returns
+        -------
+        tuple[plt.Figure, plt.Axes]
+        """
+        self._apply_style()
+        precision = sweep_result["precision"].numpy()  # (T, C)
+        recall = sweep_result["recall"].numpy()        # (T, C)
+        n_classes = precision.shape[1]
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        colors = [
+            _CLASS_PALETTE[i % len(_CLASS_PALETTE)]
+            for i in range(n_classes)
+        ]
+
+        for c in range(n_classes):
+            label = self.class_names[c] if c < len(self.class_names) else f"class_{c}"
+            
+            # Sort by recall for plotting and AUC
+            rec = recall[:, c]
+            prec = precision[:, c]
+            sort_idx = np.argsort(rec)
+            rec_sorted = rec[sort_idx]
+            prec_sorted = prec[sort_idx]
+            
+            # Compute AUC using trapezoidal rule
+            pr_auc = np.trapz(prec_sorted, rec_sorted)
+            
+            ax.plot(rec_sorted, prec_sorted, marker="o", markersize=4,
+                    label=f"{label} (AUC: {pr_auc:.3f})", color=colors[c], linewidth=1.5)
+
+        ax.set_xlabel("Recall", fontsize=11)
+        ax.set_ylabel("Precision", fontsize=11)
+        ax.set_xlim(0, 1.05)
+        ax.set_ylim(0, 1.05)
+        ax.grid(alpha=0.3, linestyle="--")
+        ax.legend(fontsize=9, loc="lower left")
+
+        fig.suptitle(
+            title or "Precision-Recall Curve",
+            fontsize=14,
+            fontweight="bold",
+        )
+        fig.tight_layout()
+        return fig, ax
+
+    # ------------------------------------------------------------------ #
+    #  Metric Distributions (Violin/Box Plot)                               #
+    # ------------------------------------------------------------------ #
+
+    def plot_metric_distributions(
+        self,
+        eval_result: Any, # EvaluationResult
+        metric: str = "iou", # 'iou', 'dice', 'precision', 'recall', 'f1'
+        title: str | None = None,
+    ) -> tuple[plt.Figure, plt.Axes]:
+        """Plot violin plots of metric distributions per class.
+
+        Parameters
+        ----------
+        eval_result : EvaluationResult
+            Contains per-sample metrics.
+        metric : str
+            Which metric to plot ('iou', 'dice', 'precision', 'recall', 'f1').
+        title : str, optional
+            Figure title.
+
+        Returns
+        -------
+        tuple[plt.Figure, plt.Axes]
+        """
+        self._apply_style()
+        
+        # Extract data
+        metric = metric.lower()
+        if metric == "iou":
+            data = eval_result.per_sample_iou
+        elif metric == "dice":
+            data = eval_result.per_sample_dice
+        elif metric == "precision":
+            data = eval_result.per_sample_precision
+        elif metric == "recall":
+            data = eval_result.per_sample_recall
+        elif metric == "f1":
+            data = eval_result.per_sample_f1
+        else:
+            raise ValueError(f"Unknown metric {metric}")
+            
+        n_classes = data.shape[1] if data.ndim == 2 else 1
+        
+        fig, ax = plt.subplots(figsize=(max(8, n_classes * 1.5), 6))
+
+        colors = [
+            _CLASS_PALETTE[i % len(_CLASS_PALETTE)]
+            for i in range(n_classes)
+        ]
+        
+        # Prepare data for matplotlib violinplot
+        plot_data = [data[:, c] for c in range(n_classes)] if n_classes > 1 else [data]
+        
+        # Filter out NaN/Inf if any
+        plot_data = [d[np.isfinite(d)] for d in plot_data]
+        # Avoid empty sequences
+        plot_data = [d if len(d) > 0 else np.array([0.0]) for d in plot_data]
+        
+        parts = ax.violinplot(plot_data, showmeans=True, showmedians=False)
+        
+        for i, pc in enumerate(parts['bodies']):
+            pc.set_facecolor(colors[i])
+            pc.set_edgecolor('white')
+            pc.set_alpha(0.7)
+            
+        parts['cmeans'].set_color('white')
+        parts['cbars'].set_color('white')
+        parts['cmaxes'].set_color('white')
+        parts['cmins'].set_color('white')
+
+        ax.set_xticks(np.arange(1, n_classes + 1))
+        ax.set_xticklabels(self.class_names[:n_classes], rotation=45, ha="right", fontsize=9)
+        ax.set_ylabel(metric.upper() if metric in ['iou', 'f1'] else metric.capitalize(), fontsize=11)
+        ax.set_ylim(0, 1.05)
+        ax.set_title(
+            title or f"{metric.upper() if metric in ['iou', 'f1'] else metric.capitalize()} Distribution",
+            fontsize=13,
+            fontweight="bold",
+        )
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+        fig.tight_layout()
+        return fig, ax
+
+    # ------------------------------------------------------------------ #
+    #  Confidence Panel (Heatmap)                                           #
+    # ------------------------------------------------------------------ #
+
+    def plot_confidence_panel(
+        self,
+        image: np.ndarray,
+        gt_mask: np.ndarray,
+        prob_mask: np.ndarray,
+        class_idx: int = 0,
+        title: str | None = None,
+    ) -> tuple[plt.Figure, np.ndarray]:
+        """Four-panel view emphasizing raw probabilities.
+
+        Panels: **Raw image** | **GT overlay** | **Confidence Map** |
+        **Uncertainty Map**.
+
+        Parameters
+        ----------
+        image : np.ndarray
+            ``(C, H, W)`` or ``(H, W)`` input image.
+        gt_mask : np.ndarray
+            ``(C, H, W)`` or ``(H, W)`` ground-truth mask.
+        prob_mask : np.ndarray
+            ``(C, H, W)`` or ``(H, W)`` raw predicted probabilities (0.0 to 1.0).
+        class_idx : int
+            Which class channel to visualise (ignored if masks are 2-D).
+        title : str, optional
+            Figure suptitle.
+
+        Returns
+        -------
+        tuple[plt.Figure, np.ndarray]
+            Matplotlib figure and axes array.
+        """
+        self._apply_style()
+        gray = _to_2d(image)
+
+        gt_2d = gt_mask[class_idx] if gt_mask.ndim == 3 else gt_mask
+        prob_2d = prob_mask[class_idx] if prob_mask.ndim == 3 else prob_mask
+
+        fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+        # Panel 1 — Raw
+        axes[0].imshow(gray, cmap="gray")
+        axes[0].set_title("Raw Image")
+        axes[0].axis("off")
+
+        # Panel 2 — GT overlay
+        axes[1].imshow(gray, cmap="gray")
+        gt_rgba = np.zeros((*gray.shape, 4), dtype=np.float32)
+        gt_rgba[gt_2d > 0] = [0.0, 0.9, 0.4, 0.55]
+        axes[1].imshow(gt_rgba)
+        axes[1].set_title("Ground Truth")
+        axes[1].axis("off")
+
+        # Panel 3 — Confidence Map (Heatmap)
+        im3 = axes[2].imshow(prob_2d, cmap="inferno", vmin=0.0, vmax=1.0)
+        axes[2].set_title("Confidence Map (Probability)")
+        axes[2].axis("off")
+        fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04)
+
+        # Panel 4 — Uncertainty Map (closer to 0.5 is more uncertain)
+        uncertainty = 1.0 - 2.0 * np.abs(prob_2d - 0.5)
+        im4 = axes[3].imshow(uncertainty, cmap="magma", vmin=0.0, vmax=1.0)
+        axes[3].set_title("Uncertainty Map")
+        axes[3].axis("off")
+        fig.colorbar(im4, ax=axes[3], fraction=0.046, pad=0.04)
+
+        class_label = (
+            self.class_names[class_idx]
+            if class_idx < len(self.class_names)
+            else f"class_{class_idx}"
+        )
+        fig.suptitle(
+            title or f"Confidence Analysis — {class_label}",
+            fontsize=14,
+            fontweight="bold",
+        )
+        fig.tight_layout()
+        return fig, axes
+
+    # ------------------------------------------------------------------ #
     #  Save utility                                                         #
     # ------------------------------------------------------------------ #
 

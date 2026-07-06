@@ -47,6 +47,8 @@ def load_model(model_config: dict, device: torch.device) -> object:
     model_name      = model_config["name"]
     class_path      = model_config["class"]
     checkpoint_path = Path(model_config["checkpoint_path"])
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = (Path(__file__).resolve().parent / checkpoint_path).resolve()
     args            = model_config.get("args", {})
 
     print(f"\n--> Instantiating model: {model_name} ({class_path})")
@@ -144,7 +146,7 @@ def save_sweep_accumulators(
 
 def load_sweep_accumulators(path: Path):
     """Load previously saved sweep accumulators."""
-    data = torch.load(path, weights_only=True)
+    data = torch.load(path, map_location="cpu", weights_only=True)
     return data["global_tp"], data["global_fp"], data["global_fn"], data["thresholds"]
 
 
@@ -157,10 +159,14 @@ def compute_sweep_result(
 ) -> dict[str, torch.Tensor]:
     iou_sweep  = (global_tp + eps) / (global_tp + global_fp + global_fn + eps)
     dice_sweep = (2.0 * global_tp + eps) / (2.0 * global_tp + global_fp + global_fn + eps)
+    precision_sweep = (global_tp + eps) / (global_tp + global_fp + eps)
+    recall_sweep = (global_tp + eps) / (global_tp + global_fn + eps)
     return {
         "thresholds": torch.tensor(thresholds, dtype=torch.float32),
         "iou":  iou_sweep.cpu(),
         "dice": dice_sweep.cpu(),
+        "precision": precision_sweep.cpu(),
+        "recall": recall_sweep.cpu(),
     }
 
 
@@ -274,19 +280,28 @@ def main():
     # 1. Load config
     config_path = Path(args.config)
     if not config_path.exists():
-        print(f"Error: Config file not found at {config_path}")
-        return
+        # Fallback to resolving relative to this script's directory
+        fallback_path = Path(__file__).resolve().parent / args.config
+        if fallback_path.exists():
+            config_path = fallback_path
+        else:
+            print(f"Error: Config file not found at {config_path} or fallback {fallback_path}")
+            return
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     # 2. Resolve parameters
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir
+    for parent in [script_dir] + list(script_dir.parents):
+        if (parent / ".git").exists() or (parent / "Moon-Recognition").exists():
+            repo_root = parent
+            break
+
     data_root = Path(args.data_root or config["data"]["data_root"])
     if not data_root.is_absolute():
-        script_dir = Path(__file__).resolve().parent
-        potential  = script_dir.parent.parent / "data" / "MR" / "data" / "processed" / "tiles" / "marius_hills"
-        if potential.exists():
-            data_root = potential
+        data_root = (repo_root / data_root).resolve()
 
     batch_size  = args.batch_size or config["data"].get("batch_size", 8)
     num_workers = args.num_workers if args.num_workers is not None else config["data"].get("num_workers", 0)
@@ -294,6 +309,8 @@ def main():
     from_logits = config["eval_params"].get("from_logits", True)
 
     report_dir = Path(config["outputs"].get("report_dir", "outputs/evaluation"))
+    if not report_dir.is_absolute():
+        report_dir = (script_dir / report_dir).resolve()
     report_dir.mkdir(parents=True, exist_ok=True)
     plots_dir  = report_dir / "plots"
     plots_dir.mkdir(exist_ok=True)
@@ -326,6 +343,8 @@ def main():
 
     if index_csv_path:
         index_csv_path = Path(index_csv_path)
+        if not index_csv_path.is_absolute():
+            index_csv_path = (repo_root / index_csv_path).resolve()
         if not index_csv_path.exists():
             print(f"Error: index_csv not found at {index_csv_path.resolve()}")
             return
@@ -517,6 +536,14 @@ def main():
             fig, _ = viz.plot_model_comparison(comparison_df, metric="Dice", title="Model Comparison (Dice)")
             viz.save_figure(fig, plots_dir / "model_comparison_dice.png")
 
+        if plot_ops.get("metric_distributions", True):
+            for model_name, res in eval_results.items():
+                print(f"Generating metric distributions (Violin) for {model_name}...")
+                fig, _ = viz.plot_metric_distributions(res, metric="iou", title=f"IoU Distribution - {model_name}")
+                viz.save_figure(fig, plots_dir / f"metric_dist_iou_{model_name.lower().replace('-','_')}.png")
+                fig, _ = viz.plot_metric_distributions(res, metric="dice", title=f"Dice Distribution - {model_name}")
+                viz.save_figure(fig, plots_dir / f"metric_dist_dice_{model_name.lower().replace('-','_')}.png")
+
         # Select samples with features
         max_samples        = plot_ops.get("max_panel_samples", 5)
         interesting_indices: list[int] = []
@@ -578,6 +605,22 @@ def main():
                         plots_dir / f"class_comparison_{model_name.lower().replace('-','_')}_sample_{idx_count+1}.png",
                     )
 
+            if plot_ops.get("confidence_maps", True):
+                print(f"Generating confidence panels for {model_name}...")
+                for idx_count, idx in enumerate(interesting_indices):
+                    img_tensor, mask_tensor = dataset[idx]
+                    with torch.no_grad():
+                        pred_logits = adapter.predict(img_tensor.unsqueeze(0).to(device)).squeeze(0).cpu()
+                        probs       = torch.sigmoid(pred_logits) if effective_from_logits else pred_logits
+                    fig, _ = viz.plot_confidence_panel(
+                        img_tensor.numpy(), mask_tensor.numpy(), probs.numpy(), class_idx=0,
+                        title=f"{model_name} Confidence Panel - Sample {idx_count+1}",
+                    )
+                    viz.save_figure(
+                        fig,
+                        plots_dir / f"confidence_panel_{model_name.lower().replace('-','_')}_sample_{idx_count+1}.png",
+                    )
+
         # Threshold sensitivity — use pre-computed sweep results (no re-inference)
         if plot_ops.get("threshold_sensitivity", True):
             for model_name, s_res in sweep_results.items():
@@ -588,6 +631,18 @@ def main():
                 viz.save_figure(
                     fig,
                     plots_dir / f"threshold_sensitivity_{model_name.lower().replace('-','_')}.png",
+                )
+
+        # PR Curve — use pre-computed sweep results
+        if plot_ops.get("pr_curve", True):
+            for model_name, s_res in sweep_results.items():
+                print(f"Generating precision-recall curve for {model_name} (from cache)...")
+                fig, _ = viz.plot_pr_curve(
+                    s_res, title=f"Precision-Recall Curve - {model_name}"
+                )
+                viz.save_figure(
+                    fig,
+                    plots_dir / f"pr_curve_{model_name.lower().replace('-','_')}.png",
                 )
 
         print(f"\nAll plots saved to: {plots_dir.resolve()}")

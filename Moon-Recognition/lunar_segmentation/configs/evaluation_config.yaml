@@ -4,10 +4,10 @@
 # ---------------------------------------------------------
 data:
   # Path to tile files (used to resolve relative paths in index_csv)
-  data_root: "/LCP/MoonRec-MNTP/data/MR/data/processed/tiles/marius_hills"
+  data_root: "data/MR/data/processed/tiles/marius_hills"
   # CSV with the validation split — if set, only these tiles are evaluated.
   # Set to null (or remove) to evaluate all tiles found in data_root.
-  index_csv: "/LCP/MoonRec-MNTP/Moon-Recognition/lunar_segmentation/val_index.csv"
+  index_csv: "Moon-Recognition/lunar_segmentation/val_index.csv"
   batch_size: 8
   num_workers: 15 # dynamic multi-threaded loading
 
@@ -17,7 +17,7 @@ data:
 models:
   - name: "SmallUNet-Best"
     type: "semantic" # semantic, instance, or panoptic
-    checkpoint_path: "outputs/unet_best.pth"
+    checkpoint_path: "unet_weighted_d4.pth"
     class: "lunar_segmentation.models.unet.SmallUNet"
     # Arguments passed directly to the model constructor
     args:
@@ -30,7 +30,7 @@ models:
 
   - name: "MaskRCNN-Best"
     type: "instance"
-    checkpoint_path: "outputs/mask_rcnn_final.pth"
+    checkpoint_path: "outputs/mask_rcnn_best.pth"
     class: "lunar_segmentation.models.mask_rcnn.MaskRCNN"
     args:
       num_classes: 8      # 7 lunar classes + 1 background
@@ -73,4 +73,7 @@ outputs:
     metrics_summary: true
     model_comparison: true
     threshold_sensitivity: true
+    pr_curve: true
+    metric_distributions: true
+    confidence_maps: true
     max_panel_samples: 5
